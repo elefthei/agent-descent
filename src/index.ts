@@ -1,7 +1,7 @@
 import { CopilotClient } from "@github/copilot-sdk";
 import { resolve } from "path";
 import { setup, descent } from "./descent.js";
-import { log } from "./utils/logger.js";
+import { log, setLogFile } from "./utils/logger.js";
 
 export { setup, descent } from "./descent.js";
 export type {
@@ -17,6 +17,7 @@ export type { Agent, Orchestrator } from "./types.js";
 
 interface CliArgs {
     goalPath: string;
+    logFile: string | null;
     maxIterations: number;
     maxReject: number;
     timeout: number;
@@ -28,6 +29,7 @@ interface CliArgs {
 function parseArgs(): CliArgs {
     const args = process.argv.slice(2);
     let goalPath = "";
+    let logFile: string | null = null;
     let maxIterations = 10;
     let maxReject = 3;
     let timeout = 60;
@@ -43,6 +45,8 @@ function parseArgs(): CliArgs {
             maxReject = parseInt(args[++i]!, 10);
         } else if (arg === "--timeout" && args[i + 1]) {
             timeout = parseInt(args[++i]!, 10);
+        } else if (arg === "--log" && args[i + 1]) {
+            logFile = args[++i]!;
         } else if (arg === "--implementor-model" && args[i + 1]) {
             implementorModel = args[++i]!;
         } else if (arg === "--evaluator-model" && args[i + 1]) {
@@ -56,13 +60,14 @@ function parseArgs(): CliArgs {
 
     if (!goalPath) {
         console.error(
-            "Usage: agent-descent <goal.md> [--max-iterations N] [--max-reject N] [--timeout MINUTES] [--implementor-model M] [--evaluator-model M] [--terminator-model M]",
+            "Usage: agent-descent <goal.md> [--max-iterations N] [--max-reject N] [--timeout MINUTES] [--log FILE] [--implementor-model M] [--evaluator-model M] [--terminator-model M]",
         );
         process.exit(1);
     }
 
     return {
         goalPath: resolve(goalPath),
+        logFile,
         maxIterations,
         maxReject,
         timeout,
@@ -76,10 +81,15 @@ async function main() {
     const args = parseArgs();
     const timeoutMs = args.timeout * 60 * 1000;
 
+    if (args.logFile) {
+        setLogFile(resolve(args.logFile));
+    }
+
     log.system("🚀 Agent-Descent starting...");
     log.system(`   Goal: ${args.goalPath}`);
     log.system(`   Max iterations: ${args.maxIterations}`);
     log.system(`   Timeout: ${args.timeout} minutes per agent session`);
+    if (args.logFile) log.system(`   Log: ${resolve(args.logFile)}`);
 
     const client = new CopilotClient({ logLevel: "none" });
     await client.start();

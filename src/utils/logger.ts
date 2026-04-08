@@ -1,4 +1,5 @@
 import type { CopilotSession } from "@github/copilot-sdk";
+import { appendFileSync } from "fs";
 
 const COLORS: Record<string, string> = {
     "implementor:research": "\x1b[36m",
@@ -19,6 +20,29 @@ const RESET = "\x1b[0m";
 const DIM = "\x1b[90m";
 const MAX_ARG_LEN = 200;
 const LINE_WIDTH = 80;
+
+// ── File logging ────────────────────────────────────────────
+
+let logFilePath: string | null = null;
+
+const ANSI_REGEX = /\x1b\[[0-9;]*m/g;
+
+function stripAnsi(s: string): string {
+    return s.replace(ANSI_REGEX, "");
+}
+
+export function setLogFile(path: string): void {
+    logFilePath = path;
+    appendFileSync(path, `\n--- agent-descent log started ${new Date().toISOString()} ---\n\n`);
+}
+
+/** Write a line to both console and log file */
+function output(line: string): void {
+    console.log(line);
+    if (logFilePath) {
+        appendFileSync(logFilePath, stripAnsi(line) + "\n");
+    }
+}
 
 function truncate(s: string, max: number = MAX_ARG_LEN): string {
     const oneLine = s.replace(/\n/g, "\\n");
@@ -91,9 +115,9 @@ class WordWrapStreamer {
 
     private emitLine(line: string) {
         if (this.dim) {
-            console.log(`${DIM}${this.prefix} ${line}${RESET}`);
+            output(`${DIM}${this.prefix} ${line}${RESET}`);
         } else {
-            console.log(`${this.prefix} ${line}`);
+            output(`${this.prefix} ${line}`);
         }
     }
 }
@@ -113,9 +137,9 @@ export function attachLogger(session: CopilotSession, agent: string): void {
     function printLine(msg: string, dim = false) {
         flushAll();
         if (dim) {
-            console.log(`${DIM}${prefix} ${msg}${RESET}`);
+            output(`${DIM}${prefix} ${msg}${RESET}`);
         } else {
-            console.log(`${prefix} ${msg}`);
+            output(`${prefix} ${msg}`);
         }
     }
 
@@ -149,18 +173,18 @@ export function attachLogger(session: CopilotSession, agent: string): void {
             case "tool.execution_start": {
                 flushAll();
                 const args = formatToolArgs(event.data.toolName, event.data.arguments as Record<string, unknown> | undefined);
-                console.log(`${prefix} ${DIM}[tool: ${event.data.toolName}]${RESET}${args}`);
+                output(`${prefix} ${DIM}[tool: ${event.data.toolName}]${RESET}${args}`);
                 break;
             }
             case "tool.execution_complete": {
                 if (event.data.success) {
                     const resultStr = event.data.result ? truncate(String(event.data.result), 120) : "";
                     if (resultStr) {
-                        console.log(`${prefix} ${DIM}[tool ✓]${RESET} ${resultStr}`);
+                        output(`${prefix} ${DIM}[tool ✓]${RESET} ${resultStr}`);
                     }
                 } else {
                     const errStr = event.data.error ? truncate(String(event.data.error), 200) : "unknown error";
-                    console.log(`${prefix} \x1b[31m[tool ✗]\x1b[0m ${errStr}`);
+                    output(`${prefix} \x1b[31m[tool ✗]\x1b[0m ${errStr}`);
                 }
                 break;
             }
@@ -174,7 +198,7 @@ export function attachLogger(session: CopilotSession, agent: string): void {
                 break;
             case "subagent.failed":
                 flushAll();
-                console.log(`${prefix} \x1b[31m✗ subagent failed: ${event.data.agentName} — ${event.data.error}\x1b[0m`);
+                output(`${prefix} \x1b[31m✗ subagent failed: ${event.data.agentName} — ${event.data.error}\x1b[0m`);
                 break;
             case "subagent.selected":
                 printLine(`agent selected: ${event.data.agentName}`, true);
@@ -189,7 +213,7 @@ export function attachLogger(session: CopilotSession, agent: string): void {
                 break;
             case "session.task_complete":
                 flushAll();
-                console.log(`${prefix} ✅ task complete: ${event.data.summary ?? ""}`);
+                output(`${prefix} ✅ task complete: ${event.data.summary ?? ""}`);
                 break;
         }
     });
@@ -197,11 +221,11 @@ export function attachLogger(session: CopilotSession, agent: string): void {
 
 export const log = {
     system: (msg: string) =>
-        console.log(
+        output(
             `${COLORS.system}[system               ]${RESET} ${msg}`,
         ),
     setup: (msg: string) =>
-        console.log(
+        output(
             `${COLORS.setup}[setup                ]${RESET} ${msg}`,
         ),
 };
