@@ -2,6 +2,7 @@ import type { CopilotClient } from "@github/copilot-sdk";
 import { approveAll } from "@github/copilot-sdk";
 import { readFileSync, mkdirSync } from "fs";
 import type { AgentConfig } from "../types.js";
+import { DEFAULT_TIMEOUT } from "../types.js";
 import { gitCommitDescendOnly } from "../utils/git.js";
 import { attachLogger, log } from "../utils/logger.js";
 
@@ -64,7 +65,7 @@ export async function runSetup(
             "",
             "Project this into the three goal files now.",
         ].join("\n"),
-    }, config.timeout);
+    }, config.timeout ?? DEFAULT_TIMEOUT);
 
     await session.disconnect();
     await client.deleteSession(session.sessionId);

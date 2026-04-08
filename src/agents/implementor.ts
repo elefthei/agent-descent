@@ -5,6 +5,7 @@ import { IMPLEMENTOR_PLAN_PROMPT } from "../prompts/implementor-plan.js";
 import { IMPLEMENTOR_EXEC_PROMPT } from "../prompts/implementor-exec.js";
 import { attachLogger } from "../utils/logger.js";
 import { readFileOrDefault, readDirContents } from "../utils/files.js";
+import { DEFAULT_TIMEOUT } from "../types.js";
 
 export interface ImplementorContext {
     model: string;
@@ -46,7 +47,7 @@ export async function runImplementorResearch(
             "Research what is needed to address the goal and evaluator feedback.",
             "Save structured notes to .descend/research/ as markdown files.",
         ].join("\n"),
-    }, ctx.timeout);
+    }, ctx.timeout ?? DEFAULT_TIMEOUT);
 
     await session.disconnect();
     await client.deleteSession(session.sessionId);
@@ -89,7 +90,7 @@ export async function runImplementorPlan(
             "",
             "Create a detailed attack plan in .descend/plan/ as a markdown file.",
         ].join("\n"),
-    }, ctx.timeout);
+    }, ctx.timeout ?? DEFAULT_TIMEOUT);
 
     await session.disconnect();
     await client.deleteSession(session.sessionId);
@@ -126,7 +127,7 @@ export async function runImplementorExec(
             "Execute the plan. Make code changes.",
             "Write an execution log to .descend/implementor/report.md when done.",
         ].join("\n"),
-    }, ctx.timeout);
+    }, ctx.timeout ?? DEFAULT_TIMEOUT);
 
     await session.disconnect();
     await client.deleteSession(session.sessionId);

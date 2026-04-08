@@ -10,6 +10,7 @@ import {
     type AxisIssues,
 } from "../tools/decisions.js";
 import type { Agent, Orchestrator, AgentConfig } from "../types.js";
+import { DEFAULT_TIMEOUT } from "../types.js";
 import { EVALUATOR_FEATURES_PROMPT } from "../prompts/evaluator-features.js";
 import { EVALUATOR_RELIABILITY_PROMPT } from "../prompts/evaluator-reliability.js";
 import { EVALUATOR_MODULARITY_PROMPT } from "../prompts/evaluator-modularity.js";
@@ -98,7 +99,7 @@ class AxisEvaluatorAgent implements Agent<EvalContext, AxisResult> {
         });
         attachLogger(session, this.name);
 
-        await session.sendAndWait({ prompt: buildAxisPrompt(ctx) }, config.timeout);
+        await session.sendAndWait({ prompt: buildAxisPrompt(ctx) }, config.timeout ?? DEFAULT_TIMEOUT);
         await session.disconnect();
         await client.deleteSession(session.sessionId);
 
@@ -145,7 +146,7 @@ class SymbolicEvaluatorAgent implements Agent<EvalContext, SymbolicResult> {
             "Call submit_symbolic_report with your results.",
         ].join("\n");
 
-        await session.sendAndWait({ prompt }, config.timeout);
+        await session.sendAndWait({ prompt }, config.timeout ?? DEFAULT_TIMEOUT);
         await session.disconnect();
         await client.deleteSession(session.sessionId);
 
@@ -216,7 +217,7 @@ class SynthesizerAgent implements Agent<SynthContext, void> {
             "Include a Symbolic Checking section with the findings and suggestions above.",
         ].join("\n");
 
-        await session.sendAndWait({ prompt }, config.timeout);
+        await session.sendAndWait({ prompt }, config.timeout ?? DEFAULT_TIMEOUT);
         await session.disconnect();
         await client.deleteSession(session.sessionId);
     }
@@ -338,7 +339,7 @@ export async function runRadicalPlan(
             "Analyze the pattern of failures and write a RADICAL PLAN to .descend/evaluator/report.md.",
             "Think from first principles — start from the goal, not from the failed approaches.",
         ].join("\n"),
-    }, ctx.timeout);
+    }, ctx.timeout ?? DEFAULT_TIMEOUT);
 
     await session.disconnect();
     await client.deleteSession(session.sessionId);

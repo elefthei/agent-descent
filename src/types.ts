@@ -5,9 +5,13 @@ import type { CopilotClient } from "@github/copilot-sdk";
 export interface AgentConfig {
     model: string;
     reasoningEffort?: "low" | "medium" | "high" | "xhigh";
+    /** Timeout in ms for sendAndWait (default: 5 minutes) */
     timeout?: number;
     retryBudget?: number;
 }
+
+/** Default timeout for agent sessions: 1 hour */
+export const DEFAULT_TIMEOUT = 60 * 60 * 1000;
 
 // ── Agent Interface ─────────────────────────────────────────
 

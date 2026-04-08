@@ -29,6 +29,7 @@ export interface SetupOptions {
     implementorModel?: string;
     evaluatorModel?: string;
     terminatorModel?: string;
+    timeout?: number;
 }
 
 export interface DescentOptions {
@@ -60,6 +61,7 @@ export async function setup(
     const config: AgentConfig = {
         model: options?.implementorModel ?? "claude-opus-4.6",
         reasoningEffort: "high",
+        timeout: options?.timeout,
     };
     await runSetup(client, config, goalPath);
 
@@ -67,14 +69,17 @@ export async function setup(
         implementor: {
             model: options?.implementorModel ?? "claude-opus-4.6",
             reasoningEffort: "high",
+            timeout: options?.timeout,
         },
         evaluator: {
             model: options?.evaluatorModel ?? "claude-opus-4.6",
             reasoningEffort: "high",
+            timeout: options?.timeout,
         },
         terminator: {
             model: options?.terminatorModel ?? "claude-opus-4.6",
             reasoningEffort: "high",
+            timeout: options?.timeout,
         },
     };
 }

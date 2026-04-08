@@ -19,6 +19,7 @@ interface CliArgs {
     goalPath: string;
     maxIterations: number;
     maxReject: number;
+    timeout: number;
     implementorModel: string;
     evaluatorModel: string;
     terminatorModel: string;
@@ -29,6 +30,7 @@ function parseArgs(): CliArgs {
     let goalPath = "";
     let maxIterations = 10;
     let maxReject = 3;
+    let timeout = 60;
     let implementorModel = "claude-opus-4.6";
     let evaluatorModel = "claude-opus-4.6";
     let terminatorModel = "claude-opus-4.6";
@@ -39,6 +41,8 @@ function parseArgs(): CliArgs {
             maxIterations = parseInt(args[++i]!, 10);
         } else if (arg === "--max-reject" && args[i + 1]) {
             maxReject = parseInt(args[++i]!, 10);
+        } else if (arg === "--timeout" && args[i + 1]) {
+            timeout = parseInt(args[++i]!, 10);
         } else if (arg === "--implementor-model" && args[i + 1]) {
             implementorModel = args[++i]!;
         } else if (arg === "--evaluator-model" && args[i + 1]) {
@@ -52,7 +56,7 @@ function parseArgs(): CliArgs {
 
     if (!goalPath) {
         console.error(
-            "Usage: agent-descent <goal.md> [--max-iterations N] [--max-reject N] [--implementor-model M] [--evaluator-model M] [--terminator-model M]",
+            "Usage: agent-descent <goal.md> [--max-iterations N] [--max-reject N] [--timeout MINUTES] [--implementor-model M] [--evaluator-model M] [--terminator-model M]",
         );
         process.exit(1);
     }
@@ -61,6 +65,7 @@ function parseArgs(): CliArgs {
         goalPath: resolve(goalPath),
         maxIterations,
         maxReject,
+        timeout,
         implementorModel,
         evaluatorModel,
         terminatorModel,
@@ -69,10 +74,12 @@ function parseArgs(): CliArgs {
 
 async function main() {
     const args = parseArgs();
+    const timeoutMs = args.timeout * 60 * 1000;
 
     log.system("🚀 Agent-Descent starting...");
     log.system(`   Goal: ${args.goalPath}`);
     log.system(`   Max iterations: ${args.maxIterations}`);
+    log.system(`   Timeout: ${args.timeout} minutes per agent session`);
 
     const client = new CopilotClient({ logLevel: "none" });
     await client.start();
@@ -82,6 +89,7 @@ async function main() {
             implementorModel: args.implementorModel,
             evaluatorModel: args.evaluatorModel,
             terminatorModel: args.terminatorModel,
+            timeout: timeoutMs,
         });
 
         const result = await descent(client, agents, {

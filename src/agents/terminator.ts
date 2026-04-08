@@ -7,6 +7,7 @@ import {
 import { TERMINATOR_PROMPT } from "../prompts/terminator.js";
 import { attachLogger } from "../utils/logger.js";
 import { readFileOrDefault } from "../utils/files.js";
+import { DEFAULT_TIMEOUT } from "../types.js";
 
 import type { EvaluatorDecision } from "../tools/decisions.js";
 import type { IterationRecord } from "../utils/state.js";
@@ -80,7 +81,7 @@ export async function runTerminator(
             "Decide: should the loop CONTINUE or STOP?",
             "Call the make_decision tool with your verdict.",
         ].join("\n"),
-    }, ctx.timeout);
+    }, ctx.timeout ?? DEFAULT_TIMEOUT);
 
     await session.disconnect();
     await client.deleteSession(session.sessionId);
