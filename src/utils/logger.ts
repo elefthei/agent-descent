@@ -163,8 +163,6 @@ export function attachLogger(session: CopilotSession, agent: string): void {
 
             // ── Turn boundaries ──
             case "assistant.turn_start":
-                printLine(`── turn ${event.data.turnId ?? "?"} ──`, true);
-                break;
             case "assistant.turn_end":
                 flushAll();
                 break;
