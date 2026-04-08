@@ -18,6 +18,7 @@ const COLORS: Record<string, string> = {
 const RESET = "\x1b[0m";
 const DIM = "\x1b[90m";
 const MAX_ARG_LEN = 200;
+const LINE_WIDTH = 80;
 
 function truncate(s: string, max: number = MAX_ARG_LEN): string {
     const oneLine = s.replace(/\n/g, "\\n");
@@ -27,7 +28,6 @@ function truncate(s: string, max: number = MAX_ARG_LEN): string {
 function formatToolArgs(toolName: string, args?: Record<string, unknown>): string {
     if (!args || Object.keys(args).length === 0) return "";
 
-    // Show the most useful argument per tool type
     if (toolName === "bash" && args.command) return ` ${truncate(String(args.command))}`;
     if (toolName === "view" && args.path) return ` ${args.path}`;
     if (toolName === "edit" && args.path) return ` ${args.path}`;
@@ -42,7 +42,6 @@ function formatToolArgs(toolName: string, args?: Record<string, unknown>): strin
     if (toolName === "write_agent" && args.agent_id) return ` ${args.agent_id}`;
     if ((toolName === "task" || toolName === "skill") && args.name) return ` ${args.name}`;
 
-    // Fallback: show all args compactly
     try {
         return ` ${truncate(JSON.stringify(args))}`;
     } catch {
@@ -50,64 +49,121 @@ function formatToolArgs(toolName: string, args?: Record<string, unknown>): strin
     }
 }
 
-export function attachLogger(session: CopilotSession, agent: string): void {
-    const color = COLORS[agent] ?? COLORS.system!;
-    const prefix = `${color}[${agent.padEnd(22)}]${RESET}`;
-    const dimPrefix = `${DIM}[${agent.padEnd(22)}]${RESET}`;
-    let messageBuffer = "";
-    let reasoningBuffer = "";
+/**
+ * Word-wrapping streamer for LLM prose output.
+ * Buffers tokens, strips newlines, flushes at the last word boundary
+ * before LINE_WIDTH chars. Each flushed line gets the prefix once.
+ */
+class WordWrapStreamer {
+    private buffer = "";
+    private prefix: string;
+    private dim: boolean;
 
-    function flushLines(buf: "message" | "reasoning") {
-        const isReasoning = buf === "reasoning";
-        const source = isReasoning ? reasoningBuffer : messageBuffer;
-        const pfx = isReasoning ? `${DIM}${dimPrefix}` : prefix;
-        const suffix = isReasoning ? RESET : "";
-        let text = source;
-        let newlineIdx: number;
+    constructor(prefix: string, dim = false) {
+        this.prefix = prefix;
+        this.dim = dim;
+    }
 
-        while ((newlineIdx = text.indexOf("\n")) !== -1) {
-            const line = text.slice(0, newlineIdx);
-            text = text.slice(newlineIdx + 1);
-            if (line.length > 0) {
-                console.log(`${pfx} ${line}${suffix}`);
-            }
-        }
+    write(content: string) {
+        // Replace newlines with spaces — LLM prose gets reflowed
+        this.buffer += content.replace(/\n/g, " ");
+        this.drainLines();
+    }
 
-        if (isReasoning) {
-            reasoningBuffer = text;
-        } else {
-            messageBuffer = text;
+    private drainLines() {
+        while (this.buffer.length >= LINE_WIDTH) {
+            // Find last space before LINE_WIDTH
+            let breakAt = this.buffer.lastIndexOf(" ", LINE_WIDTH);
+            if (breakAt <= 0) breakAt = LINE_WIDTH; // no space — hard break
+
+            const line = this.buffer.slice(0, breakAt).trimEnd();
+            this.buffer = this.buffer.slice(breakAt).trimStart();
+
+            if (line.length > 0) this.emitLine(line);
         }
     }
 
-    function flushAll() {
-        flushLines("reasoning");
-        if (reasoningBuffer.length > 0) {
-            console.log(`${DIM}${dimPrefix} ${reasoningBuffer}${RESET}`);
-            reasoningBuffer = "";
+    flush() {
+        const remaining = this.buffer.trim();
+        this.buffer = "";
+        if (remaining.length > 0) this.emitLine(remaining);
+    }
+
+    private emitLine(line: string) {
+        if (this.dim) {
+            console.log(`${DIM}${this.prefix} ${line}${RESET}`);
+        } else {
+            console.log(`${this.prefix} ${line}`);
         }
-        flushLines("message");
-        if (messageBuffer.length > 0) {
-            console.log(`${prefix} ${messageBuffer}`);
-            messageBuffer = "";
+    }
+}
+
+/**
+ * Newline-based streamer for deterministic tool output (bash, grep, etc).
+ * Flushes on \n, preserving original line structure.
+ */
+class LineStreamer {
+    private buffer = "";
+    private prefix: string;
+
+    constructor(prefix: string) {
+        this.prefix = prefix;
+    }
+
+    write(content: string) {
+        this.buffer += content;
+        let idx: number;
+        while ((idx = this.buffer.indexOf("\n")) !== -1) {
+            const line = this.buffer.slice(0, idx);
+            this.buffer = this.buffer.slice(idx + 1);
+            if (line.length > 0) {
+                console.log(`${this.prefix} ${line}`);
+            }
+        }
+    }
+
+    flush() {
+        if (this.buffer.length > 0) {
+            console.log(`${this.prefix} ${this.buffer}`);
+            this.buffer = "";
+        }
+    }
+}
+
+export function attachLogger(session: CopilotSession, agent: string): void {
+    const color = COLORS[agent] ?? COLORS.system!;
+    const prefix = `${color}[${agent.padEnd(22)}]${RESET}`;
+
+    const messageStream = new WordWrapStreamer(prefix);
+    const reasoningStream = new WordWrapStreamer(prefix, true);
+
+    function flushAll() {
+        reasoningStream.flush();
+        messageStream.flush();
+    }
+
+    function printLine(msg: string, dim = false) {
+        flushAll();
+        if (dim) {
+            console.log(`${DIM}${prefix} ${msg}${RESET}`);
+        } else {
+            console.log(`${prefix} ${msg}`);
         }
     }
 
     session.on((event) => {
         switch (event.type) {
-            // ── Message streaming ──
+            // ── Message streaming (word-wrapped) ──
             case "assistant.message_delta":
-                messageBuffer += event.data.deltaContent;
-                flushLines("message");
+                messageStream.write(event.data.deltaContent);
                 break;
             case "assistant.message":
                 flushAll();
                 break;
 
-            // ── Reasoning streaming ──
+            // ── Reasoning streaming (word-wrapped, dim) ──
             case "assistant.reasoning_delta":
-                reasoningBuffer += event.data.deltaContent;
-                flushLines("reasoning");
+                reasoningStream.write(event.data.deltaContent);
                 break;
             case "assistant.reasoning":
                 flushAll();
@@ -115,8 +171,7 @@ export function attachLogger(session: CopilotSession, agent: string): void {
 
             // ── Turn boundaries ──
             case "assistant.turn_start":
-                flushAll();
-                console.log(`${DIM}${prefix} ── turn ${event.data.turnId ?? "?"} ──${RESET}`);
+                printLine(`── turn ${event.data.turnId ?? "?"} ──`, true);
                 break;
             case "assistant.turn_end":
                 flushAll();
@@ -130,34 +185,34 @@ export function attachLogger(session: CopilotSession, agent: string): void {
                 break;
             }
             case "tool.execution_complete": {
-                const success = event.data.success;
-                if (success) {
+                if (event.data.success) {
                     const resultStr = event.data.result ? truncate(String(event.data.result), 120) : "";
                     if (resultStr) {
-                        console.log(`${prefix} ${DIM}[tool result]${RESET} ${resultStr}`);
+                        console.log(`${prefix} ${DIM}[tool ✓]${RESET} ${resultStr}`);
                     }
                 } else {
                     const errStr = event.data.error ? truncate(String(event.data.error), 200) : "unknown error";
-                    console.log(`${prefix} \x1b[31m[tool error]\x1b[0m ${errStr}`);
+                    console.log(`${prefix} \x1b[31m[tool ✗]\x1b[0m ${errStr}`);
                 }
                 break;
             }
 
             // ── Subagents ──
             case "subagent.started":
-                console.log(`${prefix} ${DIM}→ subagent: ${event.data.agentDisplayName ?? event.data.agentName}${RESET}`);
+                printLine(`→ subagent: ${event.data.agentDisplayName ?? event.data.agentName}`, true);
                 break;
             case "subagent.completed":
-                console.log(`${prefix} ${DIM}← subagent: ${event.data.agentName}${RESET}`);
+                printLine(`← subagent: ${event.data.agentName}`, true);
                 break;
             case "subagent.failed":
+                flushAll();
                 console.log(`${prefix} \x1b[31m✗ subagent failed: ${event.data.agentName} — ${event.data.error}\x1b[0m`);
                 break;
             case "subagent.selected":
-                console.log(`${prefix} ${DIM}agent selected: ${event.data.agentName}${RESET}`);
+                printLine(`agent selected: ${event.data.agentName}`, true);
                 break;
             case "subagent.deselected":
-                console.log(`${prefix} ${DIM}agent deselected${RESET}`);
+                printLine("agent deselected", true);
                 break;
 
             // ── Session lifecycle ──
