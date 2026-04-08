@@ -1,0 +1,113 @@
+import { readFileSync, writeFileSync, mkdirSync, renameSync, existsSync } from "fs";
+
+export interface AxisScoresRecord {
+    features: number;
+    reliability: number;
+    modularity: number;
+}
+
+export interface IterationRecord {
+    iteration: number;
+    decision: "approve" | "reject" | "error";
+    scores?: AxisScoresRecord;
+    summary: string;
+}
+
+export interface DescentState {
+    iteration: number;
+    baselineCommit: string;
+    phase: string;
+    history: IterationRecord[];
+}
+
+const STATE_PATH = ".descend/state.json";
+
+export function loadState(): DescentState | null {
+    try {
+        return JSON.parse(readFileSync(STATE_PATH, "utf-8"));
+    } catch {
+        return null;
+    }
+}
+
+export function saveState(state: DescentState): void {
+    mkdirSync(".descend", { recursive: true });
+    writeFileSync(STATE_PATH, JSON.stringify(state, null, 2));
+}
+
+export function archiveIteration(iteration: number): void {
+    const archiveDir = `.descend/history/iteration-${iteration}`;
+    mkdirSync(archiveDir, { recursive: true });
+
+    // Move current research/ and plan/ into archive
+    for (const dir of ["research", "plan"]) {
+        const src = `.descend/${dir}`;
+        const dst = `${archiveDir}/${dir}`;
+        if (existsSync(src)) {
+            renameSync(src, dst);
+            mkdirSync(src, { recursive: true });
+        }
+    }
+
+    // Copy (not move) reports for historical reference
+    for (const file of [
+        "implementor/report.md",
+        "evaluator/report.md",
+    ]) {
+        const src = `.descend/${file}`;
+        if (existsSync(src)) {
+            try {
+                const content = readFileSync(src, "utf-8");
+                const dir = `${archiveDir}/${file.split("/")[0]}`;
+                mkdirSync(dir, { recursive: true });
+                writeFileSync(`${archiveDir}/${file}`, content);
+            } catch {
+                // Ignore copy failures
+            }
+        }
+    }
+}
+
+export function consecutiveRejects(history: IterationRecord[]): number {
+    let count = 0;
+    for (let i = history.length - 1; i >= 0; i--) {
+        if (history[i]!.decision === "reject" || history[i]!.decision === "error") {
+            count++;
+        } else {
+            break;
+        }
+    }
+    return count;
+}
+
+export function detectStagnation(history: IterationRecord[]): string | null {
+    if (history.length < 3) return null;
+
+    const recent = history.slice(-3);
+
+    // 3 consecutive rejections
+    if (recent.every((r) => r.decision === "reject")) {
+        return "3 consecutive rejections — implementor may be stuck";
+    }
+
+    // 3 consecutive errors
+    if (recent.every((r) => r.decision === "error")) {
+        return "3 consecutive errors — possible systemic issue";
+    }
+
+    // Score plateau (all have scores, <5% spread on max axis)
+    const maxScores = recent.map((r) => r.scores ? Math.max(r.scores.features, r.scores.reliability, r.scores.modularity) : null).filter((s): s is number => s != null);
+    if (maxScores.length === 3) {
+        const spread = Math.max(...maxScores) - Math.min(...maxScores);
+        if (spread < 5) {
+            return `score plateau detected (spread=${spread}, recent max scores: ${maxScores.join(", ")})`;
+        }
+    }
+
+    // Score divergence (decreasing over 3 iterations)
+    if (maxScores.length === 3 && maxScores[0]! > maxScores[1]! && maxScores[1]! > maxScores[2]!) {
+        return `score divergence detected (${maxScores.join(" → ")})`;
+    }
+
+    return null;
+}

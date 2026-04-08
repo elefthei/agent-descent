@@ -1,37 +1,41 @@
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
 
-export function getGitDiff(): string {
-    return execSync("git diff", { encoding: "utf-8" });
+export function getGitDiff(base?: string): string {
+    const args = base ? ["diff", base] : ["diff"];
+    return execFileSync("git", args, { encoding: "utf-8" });
 }
 
 export function getGitDiffStaged(): string {
-    return execSync("git diff --staged", { encoding: "utf-8" });
+    return execFileSync("git", ["diff", "--staged"], { encoding: "utf-8" });
+}
+
+export function getHeadSha(): string {
+    return execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf-8" }).trim();
 }
 
 export function gitCommitAll(iteration: number, summary: string): void {
-    execSync("git add -A");
-    execSync(`git commit -m "iteration ${iteration}: ${sanitize(summary)}"`);
+    execFileSync("git", ["add", "-A"]);
+    execFileSync("git", ["commit", "-m", `iteration ${iteration}: ${summary.slice(0, 200)}`]);
 }
 
 export function gitRevert(): void {
-    execSync("git checkout -- .");
-    execSync("git clean -fd");
+    execFileSync("git", ["checkout", "--", "."]);
+    execFileSync("git", ["clean", "-fd"]);
+}
+
+export function gitRevertToBaseline(baselineSha: string): void {
+    execFileSync("git", ["checkout", baselineSha, "--", "."]);
+    execFileSync("git", ["clean", "-fd"]);
 }
 
 export function gitCommitDescendOnly(
     iteration: number,
     reason: string,
 ): void {
-    execSync("git add .descend/");
+    execFileSync("git", ["add", ".descend/"]);
     try {
-        execSync(
-            `git commit -m "iteration ${iteration}: rejected — ${sanitize(reason)}"`,
-        );
+        execFileSync("git", ["commit", "-m", `iteration ${iteration}: rejected — ${reason.slice(0, 200)}`]);
     } catch {
         // Nothing to commit (no changes to .descend/)
     }
-}
-
-function sanitize(msg: string): string {
-    return msg.replace(/"/g, '\\"').replace(/\n/g, " ").slice(0, 200);
 }

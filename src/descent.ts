@@ -6,16 +6,18 @@ import {
     runImplementorPlan,
     runImplementorExec,
 } from "./agents/implementor.js";
-import { runEvaluator } from "./agents/evaluator.js";
+import { runEvaluator, runRadicalPlan } from "./agents/evaluator.js";
 import { runTerminator } from "./agents/terminator.js";
-import { gitCommitAll, gitRevert, gitCommitDescendOnly } from "./utils/git.js";
+import { gitCommitAll, gitRevertToBaseline, gitCommitDescendOnly, getHeadSha, getGitDiff } from "./utils/git.js";
 import { log } from "./utils/logger.js";
+import { saveState, archiveIteration, detectStagnation, consecutiveRejects, type DescentState, type IterationRecord } from "./utils/state.js";
+import { readFileOrDefault } from "./utils/files.js";
+import { readFileSync } from "fs";
 
 // ── Public types ────────────────────────────────────────────
 
-export interface AgentConfig {
-    model: string;
-}
+export type { AgentConfig } from "./types.js";
+import type { AgentConfig } from "./types.js";
 
 export interface Agents {
     implementor: AgentConfig;
@@ -30,8 +32,12 @@ export interface SetupOptions {
 }
 
 export interface DescentOptions {
+    goalPath?: string;
     maxIterations?: number;
     maxRetries?: number;
+    maxReject?: number;
+    skipResearch?: boolean;
+    skipPlan?: boolean;
 }
 
 export interface DescentResult {
@@ -50,9 +56,18 @@ export function setup(goalPath: string, options?: SetupOptions): Agents {
     runSetup(goalPath);
 
     return {
-        implementor: { model: options?.implementorModel ?? "claude-sonnet-4.5" },
-        evaluator: { model: options?.evaluatorModel ?? "claude-sonnet-4.5" },
-        terminator: { model: options?.terminatorModel ?? "gpt-4.1" },
+        implementor: {
+            model: options?.implementorModel ?? "claude-opus-4.6",
+            reasoningEffort: "high",
+        },
+        evaluator: {
+            model: options?.evaluatorModel ?? "claude-opus-4.6",
+            reasoningEffort: "high",
+        },
+        terminator: {
+            model: options?.terminatorModel ?? "claude-opus-4.6",
+            reasoningEffort: "high",
+        },
     };
 }
 
@@ -69,56 +84,149 @@ export async function descent(
 ): Promise<DescentResult> {
     const maxIterations = options?.maxIterations ?? 10;
     const maxRetries = options?.maxRetries ?? 2;
+    const maxReject = options?.maxReject ?? 3;
+    let baseline = getHeadSha();
+
+    const state: DescentState = {
+        iteration: 0,
+        baselineCommit: baseline,
+        phase: "init",
+        history: [],
+    };
+    saveState(state);
 
     for (let iteration = 1; iteration <= maxIterations; iteration++) {
         log.system(`\n${"═".repeat(60)}`);
         log.system(`  Iteration ${iteration} / ${maxIterations}`);
         log.system(`${"═".repeat(60)}\n`);
 
+        // Archive previous iteration's artifacts to prevent prompt contamination
+        if (iteration > 1) {
+            archiveIteration(iteration - 1);
+        }
+
+        state.iteration = iteration;
+        state.phase = "implementor:research";
+        saveState(state);
+
         try {
             // Implementor: Research → Plan → Execute
-            log.system("📚 Implementor: Research phase...");
-            await withRetry(
-                () => runImplementorResearch(client, agents.implementor),
-                maxRetries,
-            );
+            const implRetries = agents.implementor.retryBudget ?? maxRetries;
 
-            log.system("📋 Implementor: Plan phase...");
-            await withRetry(
-                () => runImplementorPlan(client, agents.implementor),
-                maxRetries,
-            );
+            if (!options?.skipResearch) {
+                log.system("📚 Implementor: Research phase...");
+                await withRetry(
+                    () => runImplementorResearch(client, agents.implementor),
+                    implRetries,
+                );
+
+                state.phase = "implementor:plan";
+                saveState(state);
+            }
+
+            if (!options?.skipPlan) {
+                log.system("📋 Implementor: Plan phase...");
+                await withRetry(
+                    () => runImplementorPlan(client, agents.implementor),
+                    implRetries,
+                );
+
+                state.phase = "implementor:exec";
+                saveState(state);
+            }
 
             log.system("🔧 Implementor: Execute phase...");
             await withRetry(
                 () => runImplementorExec(client, agents.implementor),
-                maxRetries,
+                implRetries,
             );
 
-            // Evaluator: Review + decide
+            // Evaluator: Review + decide (diff against baseline for owned changes only)
+            state.phase = "evaluator";
+            saveState(state);
+
             log.system("🔍 Evaluator: Reviewing changes...");
             const evalResult = await withRetry(
-                () => runEvaluator(client, agents.evaluator),
-                maxRetries,
+                () => runEvaluator(client, agents.evaluator, baseline),
+                agents.evaluator.retryBudget ?? maxRetries,
             );
 
+            const record: IterationRecord = {
+                iteration,
+                decision: evalResult.decision === "approve" ? "approve" : "reject",
+                scores: evalResult.scores,
+                summary: evalResult.summary,
+            };
+
+            const { features, reliability, modularity } = evalResult.scores;
             if (evalResult.decision === "approve") {
                 log.system(`✅ Evaluator APPROVED: ${evalResult.summary}`);
+                log.system(`   Scores: features=${features}, reliability=${reliability}, modularity=${modularity}`);
                 gitCommitAll(iteration, evalResult.summary);
+                baseline = getHeadSha();
             } else {
                 log.system(`❌ Evaluator REJECTED: ${evalResult.summary}`);
-                gitRevert();
+                log.system(`   Scores: features=${features}, reliability=${reliability}, modularity=${modularity}`);
+                gitRevertToBaseline(baseline);
                 gitCommitDescendOnly(iteration, evalResult.summary);
+                baseline = getHeadSha();
+            }
+
+            state.baselineCommit = baseline;
+            state.history.push(record);
+            saveState(state);
+
+            // Check for stagnation patterns
+            const warning = detectStagnation(state.history);
+            if (warning) {
+                log.system(`⚠️ Stagnation warning: ${warning}`);
+            }
+
+            // RADICAL PLAN: if too many consecutive rejections, evaluator does deep planning
+            const rejectStreak = consecutiveRejects(state.history);
+            if (rejectStreak >= maxReject && options?.goalPath) {
+                log.system(`\n🚨 ${rejectStreak} consecutive rejections — entering RADICAL PLAN mode...`);
+                state.phase = "evaluator:radical";
+                saveState(state);
+
+                // Collect evaluator reports from the last N rejected iterations
+                const failureReports: string[] = [];
+                const recentRejects = state.history.slice(-rejectStreak);
+                for (const rec of recentRejects) {
+                    const archived = readFileOrDefault(
+                        `.descend/history/iteration-${rec.iteration}/evaluator/report.md`,
+                        "",
+                    );
+                    // Fall back to current report for the most recent iteration
+                    const report = archived || readFileOrDefault(".descend/evaluator/report.md", "");
+                    if (report) failureReports.push(report);
+                }
+
+                const goalContent = readFileSync(options.goalPath, "utf-8");
+                await withRetry(
+                    () => runRadicalPlan(client, agents.evaluator, goalContent, failureReports),
+                    agents.evaluator.retryBudget ?? maxRetries,
+                );
+
+                log.system("📋 RADICAL PLAN written to .descend/evaluator/report.md");
             }
 
             // Terminator: Continue or stop?
+            state.phase = "terminator";
+            saveState(state);
+
             log.system("🎯 Terminator: Checking convergence...");
             const termResult = await withRetry(
-                () => runTerminator(client, agents.terminator),
-                maxRetries,
+                () => runTerminator(client, agents.terminator, {
+                    evalDecision: evalResult,
+                    history: state.history,
+                }),
+                agents.terminator.retryBudget ?? maxRetries,
             );
 
             if (termResult.decision === "stop") {
+                state.phase = "done";
+                saveState(state);
                 log.system(
                     `\n🏁 Converged after ${iteration} iteration(s): ${termResult.reason}`,
                 );
@@ -131,7 +239,7 @@ export async function descent(
             log.system(
                 `⚠️ Iteration ${iteration} failed after retries: ${message}`,
             );
-            gitRevert();
+            gitRevertToBaseline(baseline);
             writeFileSync(
                 ".descend/evaluator/report.md",
                 [
@@ -143,9 +251,21 @@ export async function descent(
                 ].join("\n"),
             );
             gitCommitDescendOnly(iteration, `error: ${message}`);
+            baseline = getHeadSha();
+
+            state.baselineCommit = baseline;
+            state.history.push({ iteration, decision: "error", summary: message });
+            saveState(state);
+
+            const warning = detectStagnation(state.history);
+            if (warning) {
+                log.system(`⚠️ Stagnation warning: ${warning}`);
+            }
         }
     }
 
+    state.phase = "done";
+    saveState(state);
     log.system(`\n⚠️ Reached maximum iterations (${maxIterations}). Stopping.`);
     return { iterations: maxIterations, converged: false, reason: "max iterations reached" };
 }

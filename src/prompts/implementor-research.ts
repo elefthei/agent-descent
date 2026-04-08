@@ -12,6 +12,14 @@ Your job is to study the codebase and gather information needed to address the g
    - Include code references with file paths and line numbers
    - Note open questions and areas needing further investigation
 
+## RADICAL PLAN Override
+
+If the evaluator's report contains a section titled "# RADICAL PLAN", this means the
+previous approach has failed repeatedly. You MUST:
+- ABANDON your previous research direction entirely
+- Follow the RADICAL PLAN's instructions as your primary guide
+- The RADICAL PLAN takes priority over all other feedback
+
 ## Constraints
 
 - You MUST NOT modify any source code files. You are READ-ONLY.

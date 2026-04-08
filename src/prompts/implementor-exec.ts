@@ -18,6 +18,14 @@ Your report must include:
 - **Issues encountered**: Problems hit during implementation and how they were resolved
 - **Remaining work**: What still needs to be done (if anything)
 
+## RADICAL PLAN Override
+
+If the evaluator's report (in .descend/evaluator/report.md) contains a section titled
+"# RADICAL PLAN", this means the previous approach has failed repeatedly. You MUST:
+- Follow the RADICAL PLAN's step-by-step instructions exactly
+- Do NOT revert to previous failed approaches
+- The RADICAL PLAN takes priority over the plan in .descend/plan/
+
 ## Constraints
 
 - You have FULL tool access — create, edit, delete files, run bash commands

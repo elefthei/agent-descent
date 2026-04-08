@@ -11,12 +11,14 @@ export type {
     DescentOptions,
     DescentResult,
 } from "./descent.js";
+export type { Agent, Orchestrator } from "./types.js";
 
 // ── CLI ─────────────────────────────────────────────────────
 
 interface CliArgs {
     goalPath: string;
     maxIterations: number;
+    maxReject: number;
     implementorModel: string;
     evaluatorModel: string;
     terminatorModel: string;
@@ -26,14 +28,17 @@ function parseArgs(): CliArgs {
     const args = process.argv.slice(2);
     let goalPath = "";
     let maxIterations = 10;
-    let implementorModel = "claude-sonnet-4.5";
-    let evaluatorModel = "claude-sonnet-4.5";
-    let terminatorModel = "gpt-4.1";
+    let maxReject = 3;
+    let implementorModel = "claude-opus-4.6";
+    let evaluatorModel = "claude-opus-4.6";
+    let terminatorModel = "claude-opus-4.6";
 
     for (let i = 0; i < args.length; i++) {
         const arg = args[i]!;
         if (arg === "--max-iterations" && args[i + 1]) {
             maxIterations = parseInt(args[++i]!, 10);
+        } else if (arg === "--max-reject" && args[i + 1]) {
+            maxReject = parseInt(args[++i]!, 10);
         } else if (arg === "--implementor-model" && args[i + 1]) {
             implementorModel = args[++i]!;
         } else if (arg === "--evaluator-model" && args[i + 1]) {
@@ -47,7 +52,7 @@ function parseArgs(): CliArgs {
 
     if (!goalPath) {
         console.error(
-            "Usage: agent-descent <goal.md> [--max-iterations N] [--implementor-model M] [--evaluator-model M] [--terminator-model M]",
+            "Usage: agent-descent <goal.md> [--max-iterations N] [--max-reject N] [--implementor-model M] [--evaluator-model M] [--terminator-model M]",
         );
         process.exit(1);
     }
@@ -55,6 +60,7 @@ function parseArgs(): CliArgs {
     return {
         goalPath: resolve(goalPath),
         maxIterations,
+        maxReject,
         implementorModel,
         evaluatorModel,
         terminatorModel,
@@ -79,7 +85,9 @@ async function main() {
         });
 
         const result = await descent(client, agents, {
+            goalPath: args.goalPath,
             maxIterations: args.maxIterations,
+            maxReject: args.maxReject,
         });
 
         log.system(`\n✨ Agent-Descent complete. ${result.iterations} iteration(s), converged=${result.converged}`);

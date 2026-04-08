@@ -2,6 +2,9 @@
     "name": "agent-descent",
     "version": "0.1.0",
     "type": "module",
+    "bin": {
+        "agent-descent": "./bin/agent-descent.js"
+    },
     "scripts": {
         "start": "tsx src/index.ts",
         "build": "tsc",

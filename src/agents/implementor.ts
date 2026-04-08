@@ -1,34 +1,15 @@
 import type { CopilotClient } from "@github/copilot-sdk";
 import { approveAll } from "@github/copilot-sdk";
-import { readFileSync, readdirSync, existsSync } from "fs";
-import { join } from "path";
 import { IMPLEMENTOR_RESEARCH_PROMPT } from "../prompts/implementor-research.js";
 import { IMPLEMENTOR_PLAN_PROMPT } from "../prompts/implementor-plan.js";
 import { IMPLEMENTOR_EXEC_PROMPT } from "../prompts/implementor-exec.js";
 import { attachLogger } from "../utils/logger.js";
-
-function readFileOrDefault(path: string, fallback: string): string {
-    try {
-        return readFileSync(path, "utf-8");
-    } catch {
-        return fallback;
-    }
-}
-
-function readDirContents(dirPath: string): string {
-    if (!existsSync(dirPath)) return "(empty)";
-    const files = readdirSync(dirPath).filter((f) => f.endsWith(".md"));
-    if (files.length === 0) return "(empty)";
-    return files
-        .map((f) => {
-            const content = readFileSync(join(dirPath, f), "utf-8");
-            return `### ${f}\n\n${content}`;
-        })
-        .join("\n\n---\n\n");
-}
+import { readFileOrDefault, readDirContents } from "../utils/files.js";
 
 export interface ImplementorContext {
     model: string;
+    reasoningEffort?: "low" | "medium" | "high" | "xhigh";
+    timeout?: number;
 }
 
 export async function runImplementorResearch(
@@ -46,6 +27,7 @@ export async function runImplementorResearch(
 
     const session = await client.createSession({
         model: ctx.model,
+        reasoningEffort: ctx.reasoningEffort ?? "high",
         systemMessage: { mode: "replace", content: IMPLEMENTOR_RESEARCH_PROMPT },
         onPermissionRequest: approveAll,
         infiniteSessions: { enabled: false },
@@ -64,7 +46,7 @@ export async function runImplementorResearch(
             "Research what is needed to address the goal and evaluator feedback.",
             "Save structured notes to .descend/research/ as markdown files.",
         ].join("\n"),
-    });
+    }, ctx.timeout);
 
     await session.disconnect();
     await client.deleteSession(session.sessionId);
@@ -86,6 +68,7 @@ export async function runImplementorPlan(
 
     const session = await client.createSession({
         model: ctx.model,
+        reasoningEffort: ctx.reasoningEffort ?? "high",
         systemMessage: { mode: "replace", content: IMPLEMENTOR_PLAN_PROMPT },
         onPermissionRequest: approveAll,
         infiniteSessions: { enabled: false },
@@ -106,7 +89,7 @@ export async function runImplementorPlan(
             "",
             "Create a detailed attack plan in .descend/plan/ as a markdown file.",
         ].join("\n"),
-    });
+    }, ctx.timeout);
 
     await session.disconnect();
     await client.deleteSession(session.sessionId);
@@ -124,6 +107,7 @@ export async function runImplementorExec(
 
     const session = await client.createSession({
         model: ctx.model,
+        reasoningEffort: ctx.reasoningEffort ?? "high",
         systemMessage: { mode: "replace", content: IMPLEMENTOR_EXEC_PROMPT },
         onPermissionRequest: approveAll,
         infiniteSessions: { enabled: false },
@@ -142,7 +126,7 @@ export async function runImplementorExec(
             "Execute the plan. Make code changes.",
             "Write an execution log to .descend/implementor/report.md when done.",
         ].join("\n"),
-    });
+    }, ctx.timeout);
 
     await session.disconnect();
     await client.deleteSession(session.sessionId);
