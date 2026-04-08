@@ -101,13 +101,13 @@ Requires Node.js ≥ 20 and GitHub Copilot CLI authentication (`gh auth login`).
 Create a `goal.md` with three sections:
 
 ```markdown
-## Goal to implement
+## Goal
 Add a REST API with GET /users and POST /users endpoints using Express.
 
-## Progress metric
+## Metric
 API endpoints respond correctly, tests pass, error handling is present.
 
-## Termination condition
+## Done
 All endpoints work, tests pass, and the evaluator finds no significant issues.
 ```
 

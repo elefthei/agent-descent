@@ -8,37 +8,39 @@ export interface ParsedGoal {
 
 export function parseGoalFile(goalPath: string): ParsedGoal {
     const content = readFileSync(goalPath, "utf-8");
-    const sections = extractSections(content, [
-        "Goal to implement",
-        "Progress metric",
-        "Termination condition",
-    ]);
-    return {
-        goalToImplement: sections["Goal to implement"]!,
-        progressMetric: sections["Progress metric"]!,
-        terminationCondition: sections["Termination condition"]!,
-    };
+
+    // Support two formats:
+    //   New: "## Goal", "## Metric", "## Done"
+    //   Legacy: "## Goal to implement", "## Progress metric", "## Termination condition"
+    const goalToImplement =
+        extractSection(content, "Goal") ??
+        extractSection(content, "Goal to implement") ??
+        fail("goal.md missing required section: ## Goal");
+
+    const progressMetric =
+        extractSection(content, "Metric") ??
+        extractSection(content, "Progress metric") ??
+        fail("goal.md missing required section: ## Metric");
+
+    const terminationCondition =
+        extractSection(content, "Done") ??
+        extractSection(content, "Termination condition") ??
+        fail("goal.md missing required section: ## Done");
+
+    return { goalToImplement, progressMetric, terminationCondition };
 }
 
-function extractSections(
-    content: string,
-    headings: string[],
-): Record<string, string> {
-    const result: Record<string, string> = {};
-    for (const heading of headings) {
-        const regex = new RegExp(
-            `##\\s*${heading}\\s*\\n([\\s\\S]*?)(?=\\n##\\s|$)`,
-            "i",
-        );
-        const match = content.match(regex);
-        if (!match) {
-            throw new Error(
-                `goal.md missing required section: "## ${heading}"`,
-            );
-        }
-        result[heading] = match[1]!.trim();
-    }
-    return result;
+function extractSection(content: string, heading: string): string | null {
+    const regex = new RegExp(
+        `##\\s*${heading}\\s*\\n([\\s\\S]*?)(?=\\n##\\s|$)`,
+        "i",
+    );
+    const match = content.match(regex);
+    return match ? match[1]!.trim() : null;
+}
+
+function fail(msg: string): never {
+    throw new Error(msg);
 }
 
 export function projectGoalFiles(parsed: ParsedGoal): void {
