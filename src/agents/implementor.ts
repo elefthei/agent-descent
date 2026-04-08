@@ -1,11 +1,9 @@
 import type { CopilotClient } from "@github/copilot-sdk";
 import { approveAll } from "@github/copilot-sdk";
-import { IMPLEMENTOR_RESEARCH_PROMPT } from "../prompts/implementor-research.js";
-import { IMPLEMENTOR_PLAN_PROMPT } from "../prompts/implementor-plan.js";
-import { IMPLEMENTOR_EXEC_PROMPT } from "../prompts/implementor-exec.js";
 import { attachLogger } from "../utils/logger.js";
 import { readFileOrDefault, readDirContents } from "../utils/files.js";
 import { DEFAULT_TIMEOUT } from "../types.js";
+import { loadPrompt } from "../utils/prompt.js";
 
 export interface ImplementorContext {
     model: string;
@@ -29,7 +27,7 @@ export async function runImplementorResearch(
     const session = await client.createSession({
         model: ctx.model,
         reasoningEffort: ctx.reasoningEffort ?? "high",
-        systemMessage: { mode: "replace", content: IMPLEMENTOR_RESEARCH_PROMPT },
+        systemMessage: { mode: "replace", content: loadPrompt("implementor-research") },
         onPermissionRequest: approveAll,
         infiniteSessions: { enabled: false },
         streaming: true,
@@ -70,7 +68,7 @@ export async function runImplementorPlan(
     const session = await client.createSession({
         model: ctx.model,
         reasoningEffort: ctx.reasoningEffort ?? "high",
-        systemMessage: { mode: "replace", content: IMPLEMENTOR_PLAN_PROMPT },
+        systemMessage: { mode: "replace", content: loadPrompt("implementor-plan") },
         onPermissionRequest: approveAll,
         infiniteSessions: { enabled: false },
         streaming: true,
@@ -109,7 +107,7 @@ export async function runImplementorExec(
     const session = await client.createSession({
         model: ctx.model,
         reasoningEffort: ctx.reasoningEffort ?? "high",
-        systemMessage: { mode: "replace", content: IMPLEMENTOR_EXEC_PROMPT },
+        systemMessage: { mode: "replace", content: loadPrompt("implementor-exec") },
         onPermissionRequest: approveAll,
         infiniteSessions: { enabled: false },
         streaming: true,

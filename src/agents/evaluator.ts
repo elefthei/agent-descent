@@ -11,15 +11,10 @@ import {
 } from "../tools/decisions.js";
 import type { Agent, Orchestrator, AgentConfig } from "../types.js";
 import { DEFAULT_TIMEOUT } from "../types.js";
-import { EVALUATOR_FEATURES_PROMPT } from "../prompts/evaluator-features.js";
-import { EVALUATOR_RELIABILITY_PROMPT } from "../prompts/evaluator-reliability.js";
-import { EVALUATOR_MODULARITY_PROMPT } from "../prompts/evaluator-modularity.js";
-import { EVALUATOR_SYMBOLIC_PROMPT } from "../prompts/evaluator-symbolic.js";
-import { EVALUATOR_SYNTHESIZER_PROMPT } from "../prompts/evaluator-synthesizer.js";
-import { EVALUATOR_RADICAL_PROMPT } from "../prompts/evaluator-radical.js";
 import { attachLogger, log } from "../utils/logger.js";
 import { getGitDiff } from "../utils/git.js";
 import { readFileOrDefault, readDirContents } from "../utils/files.js";
+import { loadPrompt } from "../utils/prompt.js";
 
 // Re-export for backward compatibility
 export type { EvaluatorDecision } from "../tools/decisions.js";
@@ -71,9 +66,9 @@ function buildAxisPrompt(evalCtx: EvalContext): string {
 type AxisName = "features" | "reliability" | "modularity";
 
 const AXIS_PROMPTS: Record<AxisName, string> = {
-    features: EVALUATOR_FEATURES_PROMPT,
-    reliability: EVALUATOR_RELIABILITY_PROMPT,
-    modularity: EVALUATOR_MODULARITY_PROMPT,
+    features: "evaluator-features",
+    reliability: "evaluator-reliability",
+    modularity: "evaluator-modularity",
 };
 
 class AxisEvaluatorAgent implements Agent<EvalContext, AxisResult> {
@@ -91,7 +86,7 @@ class AxisEvaluatorAgent implements Agent<EvalContext, AxisResult> {
         const session = await client.createSession({
             model: config.model,
             reasoningEffort: config.reasoningEffort ?? "high",
-            systemMessage: { mode: "replace", content: AXIS_PROMPTS[this.axis]! },
+            systemMessage: { mode: "replace", content: loadPrompt(AXIS_PROMPTS[this.axis]!) },
             tools: [tool],
             onPermissionRequest: approveAll,
             infiniteSessions: { enabled: false },
@@ -122,7 +117,7 @@ class SymbolicEvaluatorAgent implements Agent<EvalContext, SymbolicResult> {
         const session = await client.createSession({
             model: config.model,
             reasoningEffort: config.reasoningEffort ?? "high",
-            systemMessage: { mode: "replace", content: EVALUATOR_SYMBOLIC_PROMPT },
+            systemMessage: { mode: "replace", content: loadPrompt("evaluator-symbolic") },
             tools: [tool],
             onPermissionRequest: approveAll,
             infiniteSessions: { enabled: false },
@@ -176,7 +171,7 @@ class SynthesizerAgent implements Agent<SynthContext, void> {
         const session = await client.createSession({
             model: config.model,
             reasoningEffort: config.reasoningEffort ?? "high",
-            systemMessage: { mode: "replace", content: EVALUATOR_SYNTHESIZER_PROMPT },
+            systemMessage: { mode: "replace", content: loadPrompt("evaluator-synthesizer") },
             onPermissionRequest: approveAll,
             infiniteSessions: { enabled: false },
             streaming: true,
@@ -316,7 +311,7 @@ export async function runRadicalPlan(
     const session = await client.createSession({
         model: ctx.model,
         reasoningEffort: ctx.reasoningEffort ?? "high",
-        systemMessage: { mode: "replace", content: EVALUATOR_RADICAL_PROMPT },
+        systemMessage: { mode: "replace", content: loadPrompt("evaluator-radical") },
         onPermissionRequest: approveAll,
         infiniteSessions: { enabled: false },
         streaming: true,

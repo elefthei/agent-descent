@@ -4,10 +4,10 @@ import {
     createTerminatorDecisionTool,
     type TerminatorDecision,
 } from "../tools/decisions.js";
-import { TERMINATOR_PROMPT } from "../prompts/terminator.js";
 import { attachLogger } from "../utils/logger.js";
 import { readFileOrDefault } from "../utils/files.js";
 import { DEFAULT_TIMEOUT } from "../types.js";
+import { loadPrompt } from "../utils/prompt.js";
 
 import type { EvaluatorDecision } from "../tools/decisions.js";
 import type { IterationRecord } from "../utils/state.js";
@@ -33,7 +33,7 @@ export async function runTerminator(
     const session = await client.createSession({
         model: ctx.model,
         reasoningEffort: ctx.reasoningEffort ?? "high",
-        systemMessage: { mode: "replace", content: TERMINATOR_PROMPT },
+        systemMessage: { mode: "replace", content: loadPrompt("terminator") },
         tools: [tool],
         onPermissionRequest: approveAll,
         infiniteSessions: { enabled: false },

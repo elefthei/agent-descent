@@ -222,24 +222,25 @@ src/
 │   ├── setup.ts           # One-time goal projection
 │   ├── implementor.ts     # Research → Plan → Execute
 │   ├── evaluator.ts       # EvaluatorOrchestrator (5 subagents)
-│   └── terminator.ts      # Convergence detection
-├── prompts/
-│   ├── implementor-research.ts
-│   ├── implementor-plan.ts
-│   ├── implementor-exec.ts
-│   ├── evaluator-features.ts
-│   ├── evaluator-reliability.ts
-│   ├── evaluator-modularity.ts
-│   ├── evaluator-symbolic.ts
-│   ├── evaluator-synthesizer.ts
-│   ├── evaluator-radical.ts
-│   └── terminator.ts
+│   ├── terminator.ts      # Convergence detection
+│   └── prompts/           # Edit .md files to change agent behavior
+│       ├── setup.md
+│       ├── implementor-research.md
+│       ├── implementor-plan.md
+│       ├── implementor-exec.md
+│       ├── evaluator-features.md
+│       ├── evaluator-reliability.md
+│       ├── evaluator-modularity.md
+│       ├── evaluator-symbolic.md
+│       ├── evaluator-synthesizer.md
+│       ├── evaluator-radical.md
+│       └── terminator.md
 ├── tools/
 │   └── decisions.ts       # Structured tools (Zod schemas)
 └── utils/
     ├── logger.ts          # Color-coded terminal output
     ├── git.ts             # Safe git operations (execFileSync)
-    ├── goal.ts            # goal.md parser + projection
+    ├── prompt.ts          # loadPrompt() — reads .md at runtime
     ├── files.ts           # Shared file utilities
     └── state.ts           # Loop state + stagnation detection
 
