@@ -5,15 +5,11 @@ import { readFileOrDefault, readDirContents } from "../utils/files.js";
 import { DEFAULT_TIMEOUT } from "../types.js";
 import { loadPrompt } from "../utils/prompt.js";
 
-export interface ImplementorContext {
-    model: string;
-    reasoningEffort?: "low" | "medium" | "high" | "xhigh";
-    timeout?: number;
-}
+import type { AgentConfig } from "../types.js";
 
 export async function runImplementorResearch(
     client: CopilotClient,
-    ctx: ImplementorContext,
+    ctx: AgentConfig,
 ): Promise<void> {
     const goalFile = readFileOrDefault(
         ".descend/implementor/goal.md",
@@ -53,7 +49,7 @@ export async function runImplementorResearch(
 
 export async function runImplementorPlan(
     client: CopilotClient,
-    ctx: ImplementorContext,
+    ctx: AgentConfig,
 ): Promise<void> {
     const goalFile = readFileOrDefault(
         ".descend/implementor/goal.md",
@@ -96,7 +92,7 @@ export async function runImplementorPlan(
 
 export async function runImplementorExec(
     client: CopilotClient,
-    ctx: ImplementorContext,
+    ctx: AgentConfig,
 ): Promise<void> {
     const goalFile = readFileOrDefault(
         ".descend/implementor/goal.md",

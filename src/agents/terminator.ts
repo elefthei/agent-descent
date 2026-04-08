@@ -3,20 +3,14 @@ import { approveAll } from "@github/copilot-sdk";
 import {
     createTerminatorDecisionTool,
     type TerminatorDecision,
+    type EvaluatorDecision,
 } from "../tools/decisions.js";
 import { attachLogger } from "../utils/logger.js";
 import { readFileOrDefault } from "../utils/files.js";
 import { DEFAULT_TIMEOUT } from "../types.js";
 import { loadPrompt } from "../utils/prompt.js";
-
-import type { EvaluatorDecision } from "../tools/decisions.js";
+import type { AgentConfig } from "../types.js";
 import type { IterationRecord } from "../utils/state.js";
-
-export interface TerminatorContext {
-    model: string;
-    reasoningEffort?: "low" | "medium" | "high" | "xhigh";
-    timeout?: number;
-}
 
 export interface TerminatorInput {
     evalDecision: EvaluatorDecision;
@@ -25,7 +19,7 @@ export interface TerminatorInput {
 
 export async function runTerminator(
     client: CopilotClient,
-    ctx: TerminatorContext,
+    ctx: AgentConfig,
     input?: TerminatorInput,
 ): Promise<TerminatorDecision> {
     const { tool, getResult } = createTerminatorDecisionTool();

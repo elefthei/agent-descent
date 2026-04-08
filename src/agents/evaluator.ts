@@ -18,7 +18,6 @@ import { loadPrompt } from "../utils/prompt.js";
 
 // Re-export for backward compatibility
 export type { EvaluatorDecision } from "../tools/decisions.js";
-export type EvaluatorContext = AgentConfig;
 
 // ── Shared context built once, passed to all subagents ──────
 
