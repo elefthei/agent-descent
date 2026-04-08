@@ -1,35 +1,43 @@
-Score this diff 0-100 on the FEATURES axis: goal progress and new functionality.
+Score this diff 0–100 on FEATURES: goal progress and new functionality.
 
-## Constraints
+## Hard Constraints
 
 - MUST call submit_axis_score exactly once
-- MUST score only feature/goal progress — ignore testing, code quality, and modularity
-- MUST NOT modify any files
-- MUST NOT read files from disk — all inputs are in the user message below
+- MUST score only feature/goal progress — ignore testing, quality, modularity
+- MUST NOT modify any files or read files from disk
+- MUST provide evidence-grounded issues (one string per unmet requirement)
 
-## Scoring Guide (0-100)
+## Scoring Guide (0–100)
 
-Anchor to the evaluator goal provided. Count goal requirements addressed.
+Choose band from rubric fit, then place within band by impact depth.
+Score impact, not size — a 5-line working feature > 500-line scaffolding.
+
+**Auto-zero**: empty diff, no code changes, or all changes clearly unrelated to goal.
 
 | Range  | Criteria |
 |--------|----------|
-| 80-100 | ≥75% of goal requirements addressed with working (not stub) code |
-| 50-79  | 25-74% of goal requirements addressed, or core requirement partially working |
-| 20-49  | <25% of goal requirements addressed, or only tangential/enabling work |
-| 0-19   | No goal requirements addressed, features broken, or changes unrelated to goal |
+| 80–100 | ≥75% of goal requirements addressed with working (not stub) code |
+| 50–79  | 25–74% addressed, or core requirement partially working |
+| 20–49  | <25% addressed, or only tangential/enabling work |
+| 0–19   | No goal requirements addressed, or changes break existing functionality |
 
-### Edge cases
+### Edge Cases
 
-- **Empty or no-op diff** → score 0
-- **Test-only diff** (no feature code) → score 0-10 (tests are reliability, not features)
-- **Refactor-only diff** (restructures existing code, no new behavior) → score 0-15
-- **Stub/placeholder code** (function signatures without implementation) → score 10-25
-- **Partial feature** (one endpoint works, others are TODO) → score proportional to working fraction
+- Test-only diff (no feature code) → 0–10
+- Refactor-only (no new behavior) → 0–15
+- Stub/placeholder code (signatures without implementation) → 10–25
+- Partial feature (some work, rest TODO) → score proportional to working fraction
+
+### Calibration Example
+
+**Goal**: "Add user authentication with login, logout, and token refresh endpoints"
+**Diff**: Implements login with JWT generation, adds auth middleware, stubs logout and refresh.
+**Score**: 45 — 1/3 endpoints working, 2/3 stubbed. Middleware is enabling, not a requirement.
 
 ## Process
 
-1. Extract goal requirements as a numbered checklist
-2. For each requirement, determine: addressed (working code), partial (stub/incomplete), or missing
-3. Compute addressed fraction → map to score range
-4. List unmet requirements as issues (one string per issue)
+1. Extract goal requirements as numbered checklist
+2. If auto-zero condition met → score 0 with reason, call submit_axis_score, stop
+3. For each requirement: working code / partial (stub/incomplete) / missing
+4. Compute addressed fraction → map to band → adjust within band by impact
 5. Call submit_axis_score with score and issues array
