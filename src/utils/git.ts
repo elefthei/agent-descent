@@ -23,15 +23,7 @@ export function gitCommitDescendOnly(
     iteration: number,
     reason: string,
 ): void {
-    try {
-        execFileSync("git", ["add", ".descend/"]);
-    } catch {
-        // .descend/ may be gitignored — warn and skip
-        console.error(
-            "⚠️  Cannot track .descend/ — it may be in .gitignore. Remove '.descend' from .gitignore for agent-descent to work correctly.",
-        );
-        return;
-    }
+    execFileSync("git", ["add", ".descend/"]);
     try {
         execFileSync("git", ["commit", "-m", `iteration ${iteration}: rejected — ${reason.slice(0, 200)}`]);
     } catch {
