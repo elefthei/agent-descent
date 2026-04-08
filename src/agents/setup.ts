@@ -1,6 +1,6 @@
 import type { CopilotClient } from "@github/copilot-sdk";
 import { approveAll } from "@github/copilot-sdk";
-import { readFileSync, mkdirSync } from "fs";
+import { readFileSync, writeFileSync, mkdirSync } from "fs";
 import type { AgentConfig } from "../types.js";
 import { DEFAULT_TIMEOUT } from "../types.js";
 import { gitCommitDescendOnly } from "../utils/git.js";
@@ -47,6 +47,12 @@ export async function runSetup(
     log.setup("   .descend/implementor/goal.md");
     log.setup("   .descend/evaluator/goal.md");
     log.setup("   .descend/terminator/goal.md");
+
+    // Seed initial evaluator report so implementor doesn't look for a missing file
+    writeFileSync(
+        ".descend/evaluator/report.md",
+        "# Initial State\n\nThis is the first iteration. No previous evaluation exists.\nFocus on making initial progress toward the goal.\n",
+    );
 
     gitCommitDescendOnly(0, "setup: projected goal.md into per-agent goal files");
 }
