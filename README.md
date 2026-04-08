@@ -7,16 +7,14 @@ A multi-agent loop system that simulates **gradient descent for code** — three
 ```
                             ┌─────────────────────────┐
                             │       goal.md            │
-                            │  ┌───────────────────┐   │
-                            │  │ Goal to implement  │   │
-                            │  │ Progress metric    │   │
-                            │  │ Termination cond.  │   │
-                            └──┴───────────────────┴───┘
-                                        │
-                                        ▼
+                            │                          │
+                            │  (freeform — any format) │
+                            └────────────┬─────────────┘
+                                         │
+                                         ▼
                             ┌───────────────────────┐
-                            │     Setup Agent        │
-                            │  Parse → project to    │
+                            │     Setup Agent (LLM)  │
+                            │  Reads goal → projects  │
                             │  per-agent goal files   │
                             └───────────┬───────────┘
                                         │
@@ -98,17 +96,12 @@ Requires Node.js ≥ 20 and GitHub Copilot CLI authentication (`gh auth login`).
 
 ### 1. Write a goal
 
-Create a `goal.md` with three sections:
+Create a `goal.md` — write it in any format you want. The setup agent (an LLM) reads it and infers the goal, progress metric, and termination condition:
 
 ```markdown
-## Goal
-Add a REST API with GET /users and POST /users endpoints using Express.
-
-## Metric
-API endpoints respond correctly, tests pass, error handling is present.
-
-## Done
-All endpoints work, tests pass, and the evaluator finds no significant issues.
+Build a CLI todo app in TypeScript. It should support add, list, complete,
+and delete commands. Store todos in a JSON file. Include tests.
+I'll consider it done when all commands work and tests pass.
 ```
 
 ### 2. Run
@@ -119,28 +112,46 @@ agent-descent goal.md
 
 ### 3. Watch
 
-Color-coded output shows every agent's activity in real-time:
+Color-coded output shows every agent's activity in real-time, including tool calls with arguments:
 
 ```
-[system                ] 🚀 Agent-Descent starting...
-[system                ] ═══════════════════════════════
-[system                ]   Iteration 1 / 10
-[system                ] ═══════════════════════════════
-[implementor:research  ] 🔍 Studying codebase...
-[implementor:plan      ] 📋 Creating attack plan...
-[implementor:exec      ] 🔧 Making code changes...
-[system                ]    → evaluator:features
-[system                ]    ← features: 75/100
-[system                ]    → evaluator:reliability
-[system                ]    ← reliability: 40/100
-[system                ]    → evaluator:modularity
-[system                ]    ← modularity: 60/100
-[system                ]    → evaluator:symbolic
-[system                ]    ← symbolic: 3 checks, 1 finding
-[system                ]    → evaluator:synthesizer
-[system                ]    ← report.md written
-[system                ] ✅ Evaluator APPROVED (max=75)
-[terminator            ] 🔄 CONTINUE — significant work remaining
+[system               ] 🚀 Agent-Descent starting...
+[system               ]    Goal: /home/user/project/goal.md
+[system               ]    Max iterations: 10
+[system               ]    Timeout: 60 minutes per agent session
+[system               ] ═══════════════════════════════════════
+[system               ]   Iteration 1 / 10
+[system               ] ═══════════════════════════════════════
+[system               ] 📚 Implementor: Research phase...
+[implementor:research ] ── turn 1 ──
+[implementor:research ] [tool: grep] "auth" in src/
+[implementor:research ] [tool ✓] 3 files matched
+[implementor:research ] [tool: view] src/auth/handler.ts
+[implementor:research ] [tool: bash] npm test -- --reporter=min
+[implementor:research ] [tool ✓] 12 tests passed
+[implementor:research ] I've analyzed the codebase structure and
+[implementor:research ] identified the key files that need changes.
+[implementor:research ] [tool: create] .descend/research/auth-analysis.md
+[system               ] 📋 Implementor: Plan phase...
+[system               ] 🔧 Implementor: Execute phase...
+[implementor:exec     ] [tool: edit] src/auth/handler.ts
+[implementor:exec     ] [tool: bash] npm test
+[implementor:exec     ] [tool ✓] All 14 tests passed
+[system               ] 🔍 Evaluator: Reviewing changes...
+[system               ]    → evaluator:features
+[system               ]    ← features: 75/100
+[system               ]    → evaluator:reliability
+[system               ]    ← reliability: 40/100
+[system               ]    → evaluator:modularity
+[system               ]    ← modularity: 60/100
+[system               ]    → evaluator:symbolic
+[system               ]    ← symbolic: 3 checks, 1 finding
+[system               ]    → evaluator:synthesizer
+[system               ]    ← report.md written
+[system               ] ✅ Evaluator APPROVED
+[system               ]    Scores: features=75, reliability=40, modularity=60
+[system               ] 🎯 Terminator: Checking convergence...
+[terminator           ] 🔄 CONTINUE — significant work remaining
 ```
 
 ### CLI Options
@@ -150,6 +161,7 @@ agent-descent <goal.md> [options]
 
   --max-iterations N       Safety cap (default: 10)
   --max-reject N           Consecutive rejections before RADICAL PLAN (default: 3)
+  --timeout MINUTES        Timeout per agent session (default: 60)
   --implementor-model M    Model for implementor (default: claude-opus-4.6)
   --evaluator-model M      Model for evaluator subagents (default: claude-opus-4.6)
   --terminator-model M     Model for terminator (default: claude-opus-4.6)
@@ -164,7 +176,7 @@ import { setup, descent } from "agent-descent";
 const client = new CopilotClient({ logLevel: "none" });
 await client.start();
 
-const agents = setup("goal.md");
+const agents = await setup(client, "goal.md");
 const result = await descent(client, agents, {
     goalPath: "goal.md",
     maxIterations: 10,
@@ -219,7 +231,7 @@ src/
 ├── descent.ts             # Core loop: setup() + descent()
 ├── types.ts               # Agent, Orchestrator, AgentConfig interfaces
 ├── agents/
-│   ├── setup.ts           # One-time goal projection
+│   ├── setup.ts           # One-time goal projection (LLM-driven, freeform input)
 │   ├── implementor.ts     # Research → Plan → Execute
 │   ├── evaluator.ts       # EvaluatorOrchestrator (5 subagents)
 │   ├── terminator.ts      # Convergence detection
@@ -262,9 +274,12 @@ src/
 
 ## Key Design Decisions
 
+- **Freeform goal.md** — write your goal in any format, the setup agent infers structure
 - **Fresh sessions each iteration** — no context bleed between agents
 - **File-based state** — all communication via `.descend/` and git
 - **Baseline commit model** — safe reverts to known-good state, not destructive `git clean`
 - **Structured tool outputs** — Zod schemas, not NL parsing
 - **Per-iteration archival** — stale research/plans don't contaminate future prompts
 - **RADICAL PLAN** — escape local minima after repeated rejections
+- **Prompts as .md files** — edit `src/agents/prompts/*.md` to change behavior, no recompilation
+- **Verbose logging** — tool calls with arguments, results, turn boundaries, word-wrapped output
