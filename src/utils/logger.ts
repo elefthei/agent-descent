@@ -20,27 +20,45 @@ const RESET = "\x1b[0m";
 export function attachLogger(session: CopilotSession, agent: string): void {
     const color = COLORS[agent] ?? COLORS.system!;
     const prefix = `${color}[${agent.padEnd(22)}]${RESET}`;
+    let buffer = "";
+
+    function flushLines() {
+        let newlineIdx: number;
+        while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
+            const line = buffer.slice(0, newlineIdx);
+            buffer = buffer.slice(newlineIdx + 1);
+            if (line.length > 0) {
+                console.log(`${prefix} ${line}`);
+            }
+        }
+    }
+
+    function flushAll() {
+        flushLines();
+        if (buffer.length > 0) {
+            console.log(`${prefix} ${buffer}`);
+            buffer = "";
+        }
+    }
 
     session.on((event) => {
         switch (event.type) {
             case "assistant.message_delta":
-                process.stdout.write(
-                    `${prefix} ${event.data.deltaContent}`,
-                );
+                buffer += event.data.deltaContent;
+                flushLines();
                 break;
             case "tool.execution_start":
-                console.log(
-                    `${prefix} [tool: ${event.data.toolName}]`,
-                );
+                flushAll();
+                console.log(`${prefix} [tool: ${event.data.toolName}]`);
                 break;
             case "assistant.reasoning_delta":
+                // Reasoning goes to a separate dim stream, unbuffered
                 process.stdout.write(
                     `\x1b[90m${prefix} ${event.data.deltaContent}${RESET}`,
                 );
                 break;
             case "session.idle":
-                // Ensure a newline after streaming output
-                process.stdout.write("\n");
+                flushAll();
                 break;
         }
     });
