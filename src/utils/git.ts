@@ -10,7 +10,7 @@ export function getHeadSha(): string {
 }
 
 export function gitCommitAll(iteration: number, summary: string): void {
-    execFileSync("git", ["add", "--force", "-A"]);
+    execFileSync("git", ["add", "-A"]);
     execFileSync("git", ["commit", "-m", `iteration ${iteration}: ${summary.slice(0, 200)}`]);
 }
 
@@ -23,7 +23,7 @@ export function gitCommitDescendOnly(
     iteration: number,
     reason: string,
 ): void {
-    execFileSync("git", ["add", "--force", ".descend/"]);
+    execFileSync("git", ["add", ".descend/"]);
     try {
         execFileSync("git", ["commit", "-m", `iteration ${iteration}: rejected — ${reason.slice(0, 200)}`]);
     } catch {
