@@ -132,7 +132,7 @@ class LineStreamer {
 
 export function attachLogger(session: CopilotSession, agent: string): void {
     const color = COLORS[agent] ?? COLORS.system!;
-    const prefix = `${color}[${agent.padEnd(22)}]${RESET}`;
+    const prefix = `${color}[${agent.padEnd(21)}]${RESET}`;
 
     const messageStream = new WordWrapStreamer(prefix);
     const reasoningStream = new WordWrapStreamer(prefix, true);
@@ -230,10 +230,10 @@ export function attachLogger(session: CopilotSession, agent: string): void {
 export const log = {
     system: (msg: string) =>
         console.log(
-            `${COLORS.system}[system                ]${RESET} ${msg}`,
+            `${COLORS.system}[system               ]${RESET} ${msg}`,
         ),
     setup: (msg: string) =>
         console.log(
-            `${COLORS.setup}[setup                 ]${RESET} ${msg}`,
+            `${COLORS.setup}[setup                ]${RESET} ${msg}`,
         ),
 };
