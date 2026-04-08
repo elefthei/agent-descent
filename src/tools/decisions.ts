@@ -27,56 +27,6 @@ export interface TerminatorDecision {
     reason: string;
 }
 
-const APPROVE_THRESHOLD = 50;
-
-export function createEvaluatorDecisionTool() {
-    let result: EvaluatorDecision | null = null;
-
-    const axisScore = z.number().min(0).max(100);
-    const axisIssues = z.array(z.string());
-
-    const tool = defineTool("submit_decision", {
-        description:
-            "Submit your evaluation of the implementor's changes across three axes. The decision (approve/reject) is auto-derived: approve if any axis scores >= 50.",
-        parameters: z.object({
-            summary: z
-                .string()
-                .describe("Brief summary explaining your evaluation"),
-            scores: z.object({
-                features: axisScore.describe("0-100: New functionality, goal progress, feature completeness"),
-                reliability: axisScore.describe("0-100: Testing, proofs, error handling, correctness, robustness"),
-                modularity: axisScore.describe("0-100: Abstraction, clean code, refactoring, reorganization, separation of concerns"),
-            }).describe("Scores across three axes"),
-            issues: z.object({
-                features: axisIssues.describe("Issues related to features/goal progress"),
-                reliability: axisIssues.describe("Issues related to testing/reliability/correctness"),
-                modularity: axisIssues.describe("Issues related to code quality/modularity/abstraction"),
-            }).describe("Per-axis issue lists"),
-            remainingWork: z
-                .array(z.string())
-                .describe("List of remaining work items to reach the goal"),
-            testsStatus: z
-                .enum(["pass", "fail", "none", "partial"])
-                .describe("Status of tests: pass=all green, fail=failures, none=no tests, partial=some pass"),
-        }),
-        skipPermission: true,
-        handler: async (params: {
-            summary: string;
-            scores: AxisScores;
-            issues: AxisIssues;
-            remainingWork: string[];
-            testsStatus: "pass" | "fail" | "none" | "partial";
-        }) => {
-            const maxScore = Math.max(params.scores.features, params.scores.reliability, params.scores.modularity);
-            const decision = maxScore >= APPROVE_THRESHOLD ? "approve" : "reject";
-            result = { decision, ...params };
-            return `Decision: ${decision} (features=${params.scores.features}, reliability=${params.scores.reliability}, modularity=${params.scores.modularity}, max=${maxScore})`;
-        },
-    });
-
-    return { tool, getResult: () => result };
-}
-
 export function createTerminatorDecisionTool() {
     let result: TerminatorDecision | null = null;
 

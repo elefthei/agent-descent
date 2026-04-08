@@ -5,10 +5,6 @@ export function getGitDiff(base?: string): string {
     return execFileSync("git", args, { encoding: "utf-8" });
 }
 
-export function getGitDiffStaged(): string {
-    return execFileSync("git", ["diff", "--staged"], { encoding: "utf-8" });
-}
-
 export function getHeadSha(): string {
     return execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf-8" }).trim();
 }
@@ -16,11 +12,6 @@ export function getHeadSha(): string {
 export function gitCommitAll(iteration: number, summary: string): void {
     execFileSync("git", ["add", "-A"]);
     execFileSync("git", ["commit", "-m", `iteration ${iteration}: ${summary.slice(0, 200)}`]);
-}
-
-export function gitRevert(): void {
-    execFileSync("git", ["checkout", "--", "."]);
-    execFileSync("git", ["clean", "-fd"]);
 }
 
 export function gitRevertToBaseline(baselineSha: string): void {

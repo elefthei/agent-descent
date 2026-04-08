@@ -98,38 +98,6 @@ class WordWrapStreamer {
     }
 }
 
-/**
- * Newline-based streamer for deterministic tool output (bash, grep, etc).
- * Flushes on \n, preserving original line structure.
- */
-class LineStreamer {
-    private buffer = "";
-    private prefix: string;
-
-    constructor(prefix: string) {
-        this.prefix = prefix;
-    }
-
-    write(content: string) {
-        this.buffer += content;
-        let idx: number;
-        while ((idx = this.buffer.indexOf("\n")) !== -1) {
-            const line = this.buffer.slice(0, idx);
-            this.buffer = this.buffer.slice(idx + 1);
-            if (line.length > 0) {
-                console.log(`${this.prefix} ${line}`);
-            }
-        }
-    }
-
-    flush() {
-        if (this.buffer.length > 0) {
-            console.log(`${this.prefix} ${this.buffer}`);
-            this.buffer = "";
-        }
-    }
-}
-
 export function attachLogger(session: CopilotSession, agent: string): void {
     const color = COLORS[agent] ?? COLORS.system!;
     const prefix = `${color}[${agent.padEnd(21)}]${RESET}`;
