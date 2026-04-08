@@ -49,11 +49,19 @@ export interface DescentResult {
 // ── setup ───────────────────────────────────────────────────
 
 /**
- * Parse goal.md and project per-agent goal files into `.descend/`.
+ * Run the setup agent to read goal.md and project per-agent goal files into `.descend/`.
  * Returns configured agent handles for the descent loop.
  */
-export function setup(goalPath: string, options?: SetupOptions): Agents {
-    runSetup(goalPath);
+export async function setup(
+    client: CopilotClient,
+    goalPath: string,
+    options?: SetupOptions,
+): Promise<Agents> {
+    const config: AgentConfig = {
+        model: options?.implementorModel ?? "claude-opus-4.6",
+        reasoningEffort: "high",
+    };
+    await runSetup(client, config, goalPath);
 
     return {
         implementor: {

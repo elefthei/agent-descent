@@ -78,7 +78,7 @@ async function main() {
     await client.start();
 
     try {
-        const agents = setup(args.goalPath, {
+        const agents = await setup(client, args.goalPath, {
             implementorModel: args.implementorModel,
             evaluatorModel: args.evaluatorModel,
             terminatorModel: args.terminatorModel,
