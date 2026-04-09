@@ -86,11 +86,32 @@ A multi-agent loop system that simulates **gradient descent for code** — three
 ## Installation
 
 ```bash
-npm install
-npm link     # optional: adds `agent-descent` to PATH
+# macOS/Linux
+curl -fsSL https://raw.githubusercontent.com/elefthei/agent-descent/main/install.sh | bash
+
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/elefthei/agent-descent/main/install.ps1 | iex
 ```
 
-Requires Node.js ≥ 20 and GitHub Copilot CLI authentication (`gh auth login`).
+The installer checks for Node.js ≥ 20.6.0, installs it if missing, then runs `npm install -g`.
+
+<details>
+<summary>Manual install</summary>
+
+```bash
+npm install -g github:elefthei/agent-descent
+```
+
+Or from source:
+```bash
+git clone https://github.com/elefthei/agent-descent.git
+cd agent-descent
+npm install
+npm link
+```
+</details>
+
+Requires GitHub Copilot CLI authentication (`gh auth login`).
 
 ## Usage
 
