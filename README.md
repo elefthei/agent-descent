@@ -99,15 +99,11 @@ The installer checks for Node.js ≥ 20.6.0, installs it if missing, then runs `
 <summary>Manual install</summary>
 
 ```bash
-npm install -g github:elefthei/agent-descent
-```
-
-Or from source:
-```bash
 git clone https://github.com/elefthei/agent-descent.git
 cd agent-descent
 npm install
-npm link
+npm pack
+npm install -g agent-descent-*.tgz
 ```
 </details>
 

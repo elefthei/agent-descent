@@ -11,7 +11,6 @@
 
 $ErrorActionPreference = "Stop"
 
-$REPO = "github:elefthei/agent-descent"
 $MIN_NODE_MAJOR = 20
 $MIN_NODE_MINOR = 6
 
@@ -224,7 +223,19 @@ Write-Host ""
 
 if (-not (Install-Node)) { exit 1 }
 
-$installAction = [ScriptBlock]::Create("npm install -g '$REPO'")
+$installAction = [ScriptBlock]::Create(@'
+$tmpDir = Join-Path ([System.IO.Path]::GetTempPath()) ("ad-install-" + [System.IO.Path]::GetRandomFileName())
+try {
+    git clone --depth 1 https://github.com/elefthei/agent-descent.git $tmpDir
+    Push-Location $tmpDir
+    npm install --ignore-scripts
+    $tgz = npm pack 2>$null | Select-Object -Last 1
+    npm install -g $tgz
+    Pop-Location
+} finally {
+    Remove-Item $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
+}
+'@)
 $ok = Invoke-Step -Label "Installing agent-descent" -Action $installAction
 if (-not $ok) {
     Write-Err2 "Failed to install agent-descent"

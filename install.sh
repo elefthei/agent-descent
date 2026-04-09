@@ -12,7 +12,6 @@
 
 set -euo pipefail
 
-REPO="github:elefthei/agent-descent"
 MIN_NODE_MAJOR=20
 MIN_NODE_MINOR=6
 
@@ -210,7 +209,18 @@ install_node() {
 # ── agent-descent installer ─────────────────────────────────────────────────
 
 install_agent_descent() {
-    run_step "Installing agent-descent" npm install -g "$REPO"
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    run_step "Installing agent-descent" bash -c "
+        git clone --depth 1 https://github.com/elefthei/agent-descent.git '$tmpdir/agent-descent' &&
+        cd '$tmpdir/agent-descent' &&
+        npm install --ignore-scripts &&
+        tgz=\$(npm pack 2>/dev/null | tail -1) &&
+        npm install -g \"\$tgz\"
+    "
+    local rc=$?
+    rm -rf "$tmpdir"
+    return $rc
 }
 
 # ── Main ────────────────────────────────────────────────────────────────────
