@@ -1,4 +1,5 @@
 Discover and run verification tools (build, type-check, tests, lint, proofs). Report findings — no score.
+Working directory: {{CWD}}. Use absolute paths for all file operations.
 
 ## Hard Constraints
 

@@ -45,9 +45,6 @@ function buildEvalContext(baselineSha?: string): EvalContext {
 
 function buildAxisPrompt(evalCtx: EvalContext): string {
     return [
-        `## Working Directory: ${process.cwd()}`,
-        "Use absolute paths for all file operations.",
-        "",
         "## Evaluator Goal",
         evalCtx.evalGoal,
         "",
@@ -89,7 +86,7 @@ class AxisEvaluatorAgent implements Agent<EvalContext, AxisResult> {
         workingDirectory: process.cwd(),
             model: config.model,
             reasoningEffort: config.reasoningEffort ?? "high",
-            systemMessage: { mode: "replace", content: loadPrompt(AXIS_PROMPTS[this.axis]!) },
+            systemMessage: { mode: "replace", content: loadPrompt(AXIS_PROMPTS[this.axis]!, { CWD: process.cwd() }) },
             tools: [tool],
             onPermissionRequest: approveAll,
             infiniteSessions: { enabled: false },
@@ -121,7 +118,7 @@ class SymbolicEvaluatorAgent implements Agent<EvalContext, SymbolicResult> {
         workingDirectory: process.cwd(),
             model: config.model,
             reasoningEffort: config.reasoningEffort ?? "high",
-            systemMessage: { mode: "replace", content: loadPrompt("evaluator-symbolic") },
+            systemMessage: { mode: "replace", content: loadPrompt("evaluator-symbolic", { CWD: process.cwd() }) },
             tools: [tool],
             onPermissionRequest: approveAll,
             infiniteSessions: { enabled: false },
@@ -130,9 +127,6 @@ class SymbolicEvaluatorAgent implements Agent<EvalContext, SymbolicResult> {
         attachLogger(session, this.name);
 
         const prompt = [
-            `## Working Directory: ${process.cwd()}`,
-            "Use absolute paths for all file operations.",
-            "",
             "## Evaluator Goal",
             ctx.evalGoal,
             "",
@@ -179,7 +173,7 @@ class SynthesizerAgent implements Agent<SynthContext, void> {
         workingDirectory: process.cwd(),
             model: config.model,
             reasoningEffort: config.reasoningEffort ?? "high",
-            systemMessage: { mode: "replace", content: loadPrompt("evaluator-synthesizer") },
+            systemMessage: { mode: "replace", content: loadPrompt("evaluator-synthesizer", { CWD: process.cwd() }) },
             onPermissionRequest: approveAll,
             infiniteSessions: { enabled: false },
             streaming: true,
@@ -320,7 +314,7 @@ export async function runRadicalPlan(
         workingDirectory: process.cwd(),
         model: ctx.model,
         reasoningEffort: ctx.reasoningEffort ?? "high",
-        systemMessage: { mode: "replace", content: loadPrompt("evaluator-radical") },
+        systemMessage: { mode: "replace", content: loadPrompt("evaluator-radical", { CWD: process.cwd() }) },
         onPermissionRequest: approveAll,
         infiniteSessions: { enabled: false },
         streaming: true,

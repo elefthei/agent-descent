@@ -1,4 +1,5 @@
 Consolidate four evaluator subagent results into `.descend/evaluator/report.md`.
+Working directory: {{CWD}}. Use absolute paths for all file operations.
 
 ## Hard Constraints
 

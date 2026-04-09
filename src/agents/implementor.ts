@@ -24,7 +24,7 @@ export async function runImplementorResearch(
         workingDirectory: process.cwd(),
         model: ctx.model,
         reasoningEffort: ctx.reasoningEffort ?? "high",
-        systemMessage: { mode: "replace", content: loadPrompt("implementor-research") },
+        systemMessage: { mode: "replace", content: loadPrompt("implementor-research", { CWD: process.cwd() }) },
         onPermissionRequest: approveAll,
         infiniteSessions: { enabled: false },
         streaming: true,
@@ -33,9 +33,6 @@ export async function runImplementorResearch(
 
     await session.sendAndWait({
         prompt: [
-            `## Working Directory: ${process.cwd()}`,
-            "Use absolute paths for all file operations.",
-            "",
             "## Goal",
             goalFile,
             "",
@@ -69,7 +66,7 @@ export async function runImplementorPlan(
         workingDirectory: process.cwd(),
         model: ctx.model,
         reasoningEffort: ctx.reasoningEffort ?? "high",
-        systemMessage: { mode: "replace", content: loadPrompt("implementor-plan") },
+        systemMessage: { mode: "replace", content: loadPrompt("implementor-plan", { CWD: process.cwd() }) },
         onPermissionRequest: approveAll,
         infiniteSessions: { enabled: false },
         streaming: true,
@@ -78,9 +75,6 @@ export async function runImplementorPlan(
 
     await session.sendAndWait({
         prompt: [
-            `## Working Directory: ${process.cwd()}`,
-            "Use absolute paths for all file operations.",
-            "",
             "## Goal",
             goalFile,
             "",
@@ -112,7 +106,7 @@ export async function runImplementorExec(
         workingDirectory: process.cwd(),
         model: ctx.model,
         reasoningEffort: ctx.reasoningEffort ?? "high",
-        systemMessage: { mode: "replace", content: loadPrompt("implementor-exec") },
+        systemMessage: { mode: "replace", content: loadPrompt("implementor-exec", { CWD: process.cwd() }) },
         onPermissionRequest: approveAll,
         infiniteSessions: { enabled: false },
         streaming: true,
@@ -121,9 +115,6 @@ export async function runImplementorExec(
 
     await session.sendAndWait({
         prompt: [
-            `## Working Directory: ${process.cwd()}`,
-            "Use absolute paths for all file operations.",
-            "",
             "## Goal",
             goalFile,
             "",

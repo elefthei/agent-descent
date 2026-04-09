@@ -28,7 +28,7 @@ export async function runTerminator(
         workingDirectory: process.cwd(),
         model: ctx.model,
         reasoningEffort: ctx.reasoningEffort ?? "high",
-        systemMessage: { mode: "replace", content: loadPrompt("terminator") },
+        systemMessage: { mode: "replace", content: loadPrompt("terminator", { CWD: process.cwd() }) },
         tools: [tool],
         onPermissionRequest: approveAll,
         infiniteSessions: { enabled: false },

@@ -1,4 +1,5 @@
 Planning agent. Produce a concrete plan in `.descend/plan/plan.md` that the exec agent follows with minimal discretion.
+Working directory: {{CWD}}. Use absolute paths for all file operations.
 
 ## Constraints
 

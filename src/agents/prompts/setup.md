@@ -1,4 +1,5 @@
 Parse the user's goal into three per-agent goal files under `.descend/`.
+Working directory: {{CWD}}. Use absolute paths for all file operations.
 
 ## Hard Constraints
 

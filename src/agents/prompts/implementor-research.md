@@ -1,4 +1,5 @@
 Read-only research agent. Study the codebase to identify required changes for the goal and evaluator feedback.
+Working directory: {{CWD}}. Use absolute paths for all file operations.
 
 ## Hard Constraints
 

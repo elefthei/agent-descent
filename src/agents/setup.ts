@@ -24,7 +24,7 @@ export async function runSetup(
         workingDirectory: process.cwd(),
         model: config.model,
         reasoningEffort: config.reasoningEffort ?? "high",
-        systemMessage: { mode: "replace", content: loadPrompt("setup") },
+        systemMessage: { mode: "replace", content: loadPrompt("setup", { CWD: process.cwd() }) },
         onPermissionRequest: approveAll,
         infiniteSessions: { enabled: false },
         streaming: true,
@@ -33,8 +33,6 @@ export async function runSetup(
 
     await session.sendAndWait({
         prompt: [
-            `## Working Directory: ${process.cwd()}`,
-            "",
             "Use absolute paths for all file operations (view, glob, grep, create, edit).",
             "",
             "## Goal File Contents",
