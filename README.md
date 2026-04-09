@@ -5,27 +5,27 @@ A multi-agent loop system that simulates **gradient descent for code** — three
 ## System Diagram
 
 ```
-                            ┌─────────────────────────┐
+                            ┌──────────────────────────┐
                             │       goal.md            │
                             │                          │
                             │  (freeform — any format) │
                             └────────────┬─────────────┘
                                          │
                                          ▼
-                            ┌───────────────────────┐
+                            ┌────────────────────────┐
                             │     Setup Agent (LLM)  │
-                            │  Reads goal → projects  │
-                            │  per-agent goal files   │
-                            └───────────┬───────────┘
+                            │  Reads goal → projects │
+                            │  per-agent goal files  │
+                            └───────────┬────────────┘
                                         │
                     ┌───────────────────────────────────────────┐
-                    │              ITERATION LOOP                │
+                    │              ITERATION LOOP               │
                     │                                           │
                     │   ┌───────────────────────────────────┐   │
                     │   │        IMPLEMENTOR                │   │
                     │   │                                   │   │
                     │   │   ┌──────────┐  .descend/research │   │
-                    │   │   │ Research  │──────────────────▶│   │
+                    │   │   │ Research  │─────────────────▶│   │
                     │   │   └────┬─────┘                    │   │
                     │   │        ▼                          │   │
                     │   │   ┌──────────┐  .descend/plan     │   │
@@ -36,9 +36,9 @@ A multi-agent loop system that simulates **gradient descent for code** — three
                     │   │   │ Execute  │  + report.md       │   │
                     │   │   └────┬─────┘                    │   │
                     │   └────────┼──────────────────────────┘   │
-                    │            ▼                               │
+                    │            ▼                              │
                     │   ┌───────────────────────────────────┐   │
-                    │   │        EVALUATOR ORCHESTRATOR      │   │
+                    │   │        EVALUATOR ORCHESTRATOR     │   │
                     │   │                                   │   │
                     │   │   ┌────────────┐ ┌────────────┐   │   │
                     │   │   │ Features   │ │Reliability │   │   │
@@ -48,26 +48,26 @@ A multi-agent loop system that simulates **gradient descent for code** — three
                     │   │   │Modularity  │ │ Symbolic   │   │   │
                     │   │   │  0-100     │ │ (advisory) │   │   │
                     │   │   └────────────┘ └────────────┘   │   │
-                    │   │          │                         │   │
-                    │   │          ▼                         │   │
+                    │   │          │                        │   │
+                    │   │          ▼                        │   │
                     │   │   ┌────────────┐                  │   │
                     │   │   │Synthesizer │→ report.md       │   │
                     │   │   └────────────┘                  │   │
-                    │   │          │                         │   │
+                    │   │          │                        │   │
                     │   │   max(scores) ≥ 50?               │   │
-                    │   │    yes → git commit                │   │
-                    │   │    no  → git revert + feedback     │   │
+                    │   │    yes → git commit               │   │
+                    │   │    no  → git revert + feedback    │   │
                     │   └──────────┬────────────────────────┘   │
-                    │              ▼                             │
+                    │              ▼                            │
                     │   ┌───────────────────────────────────┐   │
-                    │   │        TERMINATOR                  │   │
-                    │   │  STOP  → done                      │   │
-                    │   │  CONTINUE → next iteration          │   │
+                    │   │        TERMINATOR                 │   │
+                    │   │  STOP  → done                     │   │
+                    │   │  CONTINUE → next iteration        │   │
                     │   └───────────────────────────────────┘   │
                     │                                           │
-                    │   After N consecutive rejections:          │
-                    │   🚨 RADICAL PLAN — evaluator rethinks     │
-                    │      strategy from goal.md + failures      │
+                    │   After N consecutive rejections:         │
+                    │   🚨 RADICAL PLAN — evaluator rethinks   │
+                    │      strategy from goal.md + failures     │
                     └───────────────────────────────────────────┘
 ```
 
