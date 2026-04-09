@@ -289,26 +289,35 @@ src/
 
 ## Model Fallback Chain
 
-On rate-limit or API errors, agent-descent automatically falls back to the next model:
+On rate-limit or API errors, auto-downgrades to the next model and retries:
 
 ```
 claude-opus-4.6-1m (6 RPM) → claude-opus-4.6 (3 RPM) → gpt-5.4 (1 RPM)
   → gpt-5.3-codex (1 RPM) → claude-sonnet-4.6 (1 RPM)
 ```
 
-Each new agent phase resets to the top model. Fallbacks only persist within a single retry sequence.
+Each new agent phase resets to the top model. 30s backoff between retries.
 
 ## Resume / Restart
 
-Agent-descent auto-resumes if `.descend/` has valid state:
+Ctrl-C and re-run — picks up where you left off:
 
 ```bash
 agent-descent goal.md          # First run — setup + loop
 # Ctrl-C
-agent-descent goal.md          # Resumes from last iteration
+agent-descent goal.md          # Resumes from last completed iteration
 
 rm -rf .descend/               # Force fresh start
-agent-descent goal.md          # Setup + loop from scratch
 ```
 
-If the previous run was interrupted mid-phase (e.g., during evaluator), it reverts to baseline and restarts that iteration cleanly.
+If interrupted mid-phase (e.g., during evaluator), reverts to baseline and restarts that iteration cleanly.
+
+## Phase Error Detection
+
+Between phases, an agentic `checkPreviousError` reads the predecessor's report. If it detects a system error (API failure, timeout — not a code quality issue), it backtracks and re-runs the predecessor:
+
+```
+Before implementor → checks evaluator/report.md  → error? → re-run evaluator
+Before evaluator   → checks implementor/report.md → error? → re-run implementor
+Before terminator  → checks evaluator/report.md  → error? → re-run evaluator
+```
