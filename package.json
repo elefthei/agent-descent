@@ -5,17 +5,22 @@
     "bin": {
         "agent-descent": "./bin/agent-descent.js"
     },
+    "files": [
+        "bin/",
+        "dist/"
+    ],
     "scripts": {
         "start": "tsx src/index.ts",
-        "build": "tsc",
+        "build": "tsc && node -e \"require('fs').cpSync('src/agents/prompts','dist/agents/prompts',{recursive:true})\"",
+        "prepare": "npm run build",
         "lint": "tsc --noEmit"
     },
     "dependencies": {
         "@github/copilot-sdk": "^0.2.1",
-        "tsx": "^4.19.0",
         "zod": "^4.3.6"
     },
     "devDependencies": {
+        "tsx": "^4.19.0",
         "typescript": "^5.7.0",
         "@types/node": "^22.0.0"
     },
