@@ -176,12 +176,18 @@ export function attachLogger(session: CopilotSession, agent: string): void {
             }
             case "tool.execution_complete": {
                 if (event.data.success) {
-                    const resultStr = event.data.result ? truncate(String(event.data.result), 120) : "";
+                    const raw = event.data.result;
+                    const resultStr = raw
+                        ? truncate(typeof raw === "string" ? raw : JSON.stringify(raw), 120)
+                        : "";
                     if (resultStr) {
                         output(`${prefix} ${DIM}[tool ✓]${RESET} ${resultStr}`);
                     }
                 } else {
-                    const errStr = event.data.error ? truncate(String(event.data.error), 200) : "unknown error";
+                    const rawErr = event.data.error;
+                    const errStr = rawErr
+                        ? truncate(typeof rawErr === "string" ? rawErr : JSON.stringify(rawErr), 200)
+                        : "unknown error";
                     output(`${prefix} \x1b[31m[tool ✗]\x1b[0m ${errStr}`);
                 }
                 break;
