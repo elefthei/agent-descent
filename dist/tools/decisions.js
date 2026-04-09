@@ -1,0 +1,68 @@
+import { z } from "zod";
+import { defineTool } from "@github/copilot-sdk";
+export function createTerminatorDecisionTool() {
+    let result = null;
+    const tool = defineTool("make_decision", {
+        description: "Decide whether the loop should continue or stop",
+        parameters: z.object({
+            decision: z
+                .enum(["continue", "stop"])
+                .describe("Whether to continue iterating or stop"),
+            reason: z
+                .string()
+                .describe("Why you made this decision"),
+        }),
+        skipPermission: true,
+        handler: async ({ decision, reason, }) => {
+            result = { decision, reason };
+            return `Decision recorded: ${decision}`;
+        },
+    });
+    return { tool, getResult: () => result };
+}
+export function createAxisScoreTool(axisName) {
+    let result = null;
+    const tool = defineTool("submit_axis_score", {
+        description: `Submit your ${axisName} evaluation score and issues for this axis only.`,
+        parameters: z.object({
+            score: z
+                .number()
+                .min(0)
+                .max(100)
+                .describe(`0-100 score for the ${axisName} axis`),
+            issues: z
+                .array(z.string())
+                .describe(`Specific issues found on the ${axisName} axis`),
+        }),
+        skipPermission: true,
+        handler: async (params) => {
+            result = params;
+            return `${axisName} score recorded: ${params.score}`;
+        },
+    });
+    return { tool, getResult: () => result };
+}
+export function createSymbolicReportTool() {
+    let result = null;
+    const tool = defineTool("submit_symbolic_report", {
+        description: "Report what symbolic checking is available and what it found. This is guidance, not gatekeeping — no score.",
+        parameters: z.object({
+            availableChecks: z
+                .array(z.string())
+                .describe("What symbolic checks are available in this project (e.g., 'jest tests', 'typescript compiler', 'eslint', 'F* proofs', 'coverage report')"),
+            findings: z
+                .array(z.string())
+                .describe("Issues discovered by running or inspecting symbolic checks"),
+            suggestions: z
+                .array(z.string())
+                .describe("Suggestions for improving symbolic verification (new tests to add, proofs to write, coverage gaps)"),
+        }),
+        skipPermission: true,
+        handler: async (params) => {
+            result = params;
+            return `Symbolic report recorded: ${params.availableChecks.length} checks found, ${params.findings.length} findings`;
+        },
+    });
+    return { tool, getResult: () => result };
+}
+//# sourceMappingURL=decisions.js.map
