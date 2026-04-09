@@ -4,6 +4,7 @@ Consolidate four evaluator subagent results into `.descend/evaluator/report.md`.
 
 - MUST write report to `.descend/evaluator/report.md` — no other file writes
 - MUST NOT modify any source code files
+- MUST NOT use `show_file` — use `view` to read files, or `bash cat` for verification
 - MUST include all seven report sections in order
 - MUST echo the pre-computed decision unless a gatekeeper override fires (see below)
 

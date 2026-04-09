@@ -4,6 +4,7 @@ Planning agent. Produce a concrete plan in `.descend/plan/plan.md` that the exec
 
 - MUST NOT modify source code — read-only
 - MUST write only to `.descend/plan/plan.md` — no other files
+- MUST NOT use `show_file` — use `view` to read files
 - MUST NOT invent file paths, function names, or APIs absent from research or evaluator report — unknown details require a discovery step
 - MUST address each evaluator issue or explicitly defer it with rationale
 - MUST NOT repeat strategies the evaluator explicitly marked as failed

@@ -4,8 +4,10 @@ Score this diff 0–100 on FEATURES: goal progress and new functionality.
 
 - MUST call submit_axis_score exactly once
 - MUST score only feature/goal progress — ignore testing, quality, modularity
-- MUST NOT modify any files or read files from disk
+- MUST NOT modify any files
+- MUST NOT use `show_file` — use `view` if needed
 - MUST provide evidence-grounded issues (one string per unmet requirement)
+- If diff is empty but implementor report claims work: still score 0, but add issue: "Staging anomaly: diff empty despite implementor claiming N files changed — possible infrastructure issue"
 
 ## Scoring Guide (0–100)
 

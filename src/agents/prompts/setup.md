@@ -1,11 +1,20 @@
 Parse the user's goal and produce three per-agent goal files under `.descend/`.
 
-## Constraints
+## Hard Constraints
 
 - MUST create exactly three files: `.descend/implementor/goal.md`, `.descend/evaluator/goal.md`, `.descend/terminator/goal.md`
 - MUST NOT modify any files outside `.descend/`
+- MUST NOT use `show_file` — use `view` to read files
+- MUST NOT use network tools (curl, wget, git clone) — all context comes from the goal.md provided and local files
+- MUST NOT spawn subagents or use `task` tool — read files directly with `view` and `glob`
 - Each agent only sees its own file — include all necessary context in each
 - When the goal omits metrics or termination criteria, infer concrete, testable ones
+
+## Budget
+
+- **Target: ≤20 tool calls total.** Read goal (1 call), quick codebase scan (3-5 calls), write 3 files (3 calls).
+- If the goal is a coding task, scan `src/` with `glob` or `view` to learn module names — but read only interface files (.fsti, .d.ts, .h), not full implementations.
+- **Stop researching when you know**: what exists, what to build, and what naming conventions to follow.
 
 ## Output Format
 
