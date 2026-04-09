@@ -162,9 +162,9 @@ agent-descent <goal.md> [options]
   --max-iterations N       Safety cap (default: 10)
   --max-reject N           Consecutive rejections before RADICAL PLAN (default: 3)
   --timeout MINUTES        Timeout per agent session (default: 60)
-  --implementor-model M    Model for implementor (default: claude-opus-4.6)
-  --evaluator-model M      Model for evaluator subagents (default: claude-opus-4.6)
-  --terminator-model M     Model for terminator (default: claude-opus-4.6)
+  --implementor-model M    Model for implementor (default: claude-opus-4.6-1m)
+  --evaluator-model M      Model for evaluator subagents (default: claude-opus-4.6-1m)
+  --terminator-model M     Model for terminator (default: claude-opus-4.6-1m)
 ```
 
 ## Programmatic API
@@ -282,4 +282,33 @@ src/
 - **Per-iteration archival** — stale research/plans don't contaminate future prompts
 - **RADICAL PLAN** — escape local minima after repeated rejections
 - **Prompts as .md files** — edit `src/agents/prompts/*.md` to change behavior, no recompilation
-- **Verbose logging** — tool calls with arguments, results, turn boundaries, word-wrapped output
+- **Template variables** — `{{CWD}}` in prompts, resolved at runtime by `loadPrompt()`
+- **Verbose logging** — tool calls with arguments, results, word-wrapped output
+- **Model fallback chain** — on rate-limit errors, auto-downgrades to the next available model
+- **Auto-resume** — Ctrl-C + re-run continues from where you left off
+
+## Model Fallback Chain
+
+On rate-limit or API errors, agent-descent automatically falls back to the next model:
+
+```
+claude-opus-4.6-1m (6 RPM) → claude-opus-4.6 (3 RPM) → gpt-5.4 (1 RPM)
+  → gpt-5.3-codex (1 RPM) → claude-sonnet-4.6 (1 RPM)
+```
+
+Each new agent phase resets to the top model. Fallbacks only persist within a single retry sequence.
+
+## Resume / Restart
+
+Agent-descent auto-resumes if `.descend/` has valid state:
+
+```bash
+agent-descent goal.md          # First run — setup + loop
+# Ctrl-C
+agent-descent goal.md          # Resumes from last iteration
+
+rm -rf .descend/               # Force fresh start
+agent-descent goal.md          # Setup + loop from scratch
+```
+
+If the previous run was interrupted mid-phase (e.g., during evaluator), it reverts to baseline and restarts that iteration cleanly.

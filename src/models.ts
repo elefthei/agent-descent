@@ -3,7 +3,7 @@
  * On rate-limit or API error, fall back to the next model.
  */
 
-export interface ModelEntry {
+interface ModelEntry {
     id: string;
     rpmLimit: number;
 }
