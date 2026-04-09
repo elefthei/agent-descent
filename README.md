@@ -25,7 +25,7 @@ A multi-agent loop system that simulates **gradient descent for code** — three
                     │   │        IMPLEMENTOR                │   │
                     │   │                                   │   │
                     │   │   ┌──────────┐  .descend/research │   │
-                    │   │   │ Research  │─────────────────▶│   │
+                    │   │   │ Research │──────────────────▶│   │
                     │   │   └────┬─────┘                    │   │
                     │   │        ▼                          │   │
                     │   │   ┌──────────┐  .descend/plan     │   │
