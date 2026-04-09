@@ -83,6 +83,7 @@ class AxisEvaluatorAgent implements Agent<EvalContext, AxisResult> {
         const { tool, getResult } = createAxisScoreTool(this.axis);
 
         const session = await client.createSession({
+        workingDirectory: process.cwd(),
             model: config.model,
             reasoningEffort: config.reasoningEffort ?? "high",
             systemMessage: { mode: "replace", content: loadPrompt(AXIS_PROMPTS[this.axis]!) },
@@ -114,6 +115,7 @@ class SymbolicEvaluatorAgent implements Agent<EvalContext, SymbolicResult> {
         const { tool, getResult } = createSymbolicReportTool();
 
         const session = await client.createSession({
+        workingDirectory: process.cwd(),
             model: config.model,
             reasoningEffort: config.reasoningEffort ?? "high",
             systemMessage: { mode: "replace", content: loadPrompt("evaluator-symbolic") },
@@ -168,6 +170,7 @@ class SynthesizerAgent implements Agent<SynthContext, void> {
 
     async run(client: CopilotClient, config: AgentConfig, ctx: SynthContext): Promise<void> {
         const session = await client.createSession({
+        workingDirectory: process.cwd(),
             model: config.model,
             reasoningEffort: config.reasoningEffort ?? "high",
             systemMessage: { mode: "replace", content: loadPrompt("evaluator-synthesizer") },
@@ -308,6 +311,7 @@ export async function runRadicalPlan(
     failureReports: string[],
 ): Promise<void> {
     const session = await client.createSession({
+        workingDirectory: process.cwd(),
         model: ctx.model,
         reasoningEffort: ctx.reasoningEffort ?? "high",
         systemMessage: { mode: "replace", content: loadPrompt("evaluator-radical") },

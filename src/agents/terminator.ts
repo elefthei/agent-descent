@@ -25,6 +25,7 @@ export async function runTerminator(
     const { tool, getResult } = createTerminatorDecisionTool();
 
     const session = await client.createSession({
+        workingDirectory: process.cwd(),
         model: ctx.model,
         reasoningEffort: ctx.reasoningEffort ?? "high",
         systemMessage: { mode: "replace", content: loadPrompt("terminator") },

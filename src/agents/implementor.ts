@@ -21,6 +21,7 @@ export async function runImplementorResearch(
     );
 
     const session = await client.createSession({
+        workingDirectory: process.cwd(),
         model: ctx.model,
         reasoningEffort: ctx.reasoningEffort ?? "high",
         systemMessage: { mode: "replace", content: loadPrompt("implementor-research") },
@@ -62,6 +63,7 @@ export async function runImplementorPlan(
     const researchNotes = readDirContents(".descend/research");
 
     const session = await client.createSession({
+        workingDirectory: process.cwd(),
         model: ctx.model,
         reasoningEffort: ctx.reasoningEffort ?? "high",
         systemMessage: { mode: "replace", content: loadPrompt("implementor-plan") },
@@ -101,6 +103,7 @@ export async function runImplementorExec(
     const planNotes = readDirContents(".descend/plan");
 
     const session = await client.createSession({
+        workingDirectory: process.cwd(),
         model: ctx.model,
         reasoningEffort: ctx.reasoningEffort ?? "high",
         systemMessage: { mode: "replace", content: loadPrompt("implementor-exec") },

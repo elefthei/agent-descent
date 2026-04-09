@@ -21,6 +21,7 @@ export async function runSetup(
     const goalContent = readFileSync(goalPath, "utf-8");
 
     const session = await client.createSession({
+        workingDirectory: process.cwd(),
         model: config.model,
         reasoningEffort: config.reasoningEffort ?? "high",
         systemMessage: { mode: "replace", content: loadPrompt("setup") },
