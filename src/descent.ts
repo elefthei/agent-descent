@@ -113,8 +113,32 @@ export async function descent(
 
     // Resume from existing state or start fresh
     const existingState = loadState();
-    const startIteration = existingState ? existingState.history.length + 1 : 1;
-    let baseline = existingState?.baselineCommit ?? getHeadSha();
+    let startIteration: number;
+    let baseline: string;
+
+    if (existingState) {
+        baseline = existingState.baselineCommit;
+        const lastPhase = existingState.phase;
+
+        if (lastPhase === "done" || lastPhase === "init") {
+            // Clean boundary — start next iteration
+            startIteration = existingState.history.length + 1;
+        } else {
+            // Interrupted mid-iteration — revert and redo this iteration
+            log.system(`⚠️ Previous run interrupted during phase: ${lastPhase}`);
+            log.system(`   Reverting to baseline and restarting iteration ${existingState.iteration}`);
+            gitRevertToBaseline(baseline);
+            // Remove partial iteration record if it was added
+            if (existingState.history.length > 0 &&
+                existingState.history[existingState.history.length - 1]!.iteration === existingState.iteration) {
+                existingState.history.pop();
+            }
+            startIteration = existingState.iteration > 0 ? existingState.iteration : 1;
+        }
+    } else {
+        baseline = getHeadSha();
+        startIteration = 1;
+    }
 
     const state: DescentState = existingState ?? {
         iteration: 0,
