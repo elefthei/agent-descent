@@ -13,6 +13,7 @@ import { log } from "./utils/logger.js";
 import { saveState, archiveIteration, detectStagnation, consecutiveRejects, type DescentState, type IterationRecord } from "./utils/state.js";
 import { readFileOrDefault } from "./utils/files.js";
 import { readFileSync } from "fs";
+import { DEFAULT_MODEL, getNextModel, isRateLimitError } from "./models.js";
 
 // ── Public types ────────────────────────────────────────────
 
@@ -59,7 +60,7 @@ export async function setup(
     options?: SetupOptions,
 ): Promise<Agents> {
     const config: AgentConfig = {
-        model: options?.implementorModel ?? "claude-opus-4.6",
+        model: options?.implementorModel ?? DEFAULT_MODEL,
         reasoningEffort: "high",
         timeout: options?.timeout,
     };
@@ -67,17 +68,17 @@ export async function setup(
 
     return {
         implementor: {
-            model: options?.implementorModel ?? "claude-opus-4.6",
+            model: options?.implementorModel ?? DEFAULT_MODEL,
             reasoningEffort: "high",
             timeout: options?.timeout,
         },
         evaluator: {
-            model: options?.evaluatorModel ?? "claude-opus-4.6",
+            model: options?.evaluatorModel ?? DEFAULT_MODEL,
             reasoningEffort: "high",
             timeout: options?.timeout,
         },
         terminator: {
-            model: options?.terminatorModel ?? "claude-opus-4.6",
+            model: options?.terminatorModel ?? DEFAULT_MODEL,
             reasoningEffort: "high",
             timeout: options?.timeout,
         },
@@ -129,7 +130,8 @@ export async function descent(
             if (!options?.skipResearch) {
                 log.system("📚 Implementor: Research phase...");
                 await withRetry(
-                    () => runImplementorResearch(client, agents.implementor),
+                    (cfg) => runImplementorResearch(client, cfg),
+                    agents.implementor,
                     implRetries,
                 );
 
@@ -140,7 +142,8 @@ export async function descent(
             if (!options?.skipPlan) {
                 log.system("📋 Implementor: Plan phase...");
                 await withRetry(
-                    () => runImplementorPlan(client, agents.implementor),
+                    (cfg) => runImplementorPlan(client, cfg),
+                    agents.implementor,
                     implRetries,
                 );
 
@@ -150,7 +153,8 @@ export async function descent(
 
             log.system("🔧 Implementor: Execute phase...");
             await withRetry(
-                () => runImplementorExec(client, agents.implementor),
+                (cfg) => runImplementorExec(client, cfg),
+                agents.implementor,
                 implRetries,
             );
 
@@ -160,7 +164,8 @@ export async function descent(
 
             log.system("🔍 Evaluator: Reviewing changes...");
             const evalResult = await withRetry(
-                () => runEvaluator(client, agents.evaluator, baseline),
+                (cfg) => runEvaluator(client, cfg, baseline),
+                agents.evaluator,
                 agents.evaluator.retryBudget ?? maxRetries,
             );
 
@@ -217,7 +222,8 @@ export async function descent(
 
                 const goalContent = readFileSync(options.goalPath, "utf-8");
                 await withRetry(
-                    () => runRadicalPlan(client, agents.evaluator, goalContent, failureReports),
+                    (cfg) => runRadicalPlan(client, cfg, goalContent, failureReports),
+                    agents.evaluator,
                     agents.evaluator.retryBudget ?? maxRetries,
                 );
 
@@ -230,10 +236,11 @@ export async function descent(
 
             log.system("🎯 Terminator: Checking convergence...");
             const termResult = await withRetry(
-                () => runTerminator(client, agents.terminator, {
+                (cfg) => runTerminator(client, cfg, {
                     evalDecision: evalResult,
                     history: state.history,
                 }),
+                agents.terminator,
                 agents.terminator.retryBudget ?? maxRetries,
             );
 
@@ -302,16 +309,27 @@ function formatError(err: Error): string {
     return msg;
 }
 
-async function withRetry<T>(fn: () => Promise<T>, retries: number): Promise<T> {
+async function withRetry<T>(fn: (config: AgentConfig) => Promise<T>, config: AgentConfig, retries: number): Promise<T> {
+    let currentModel = config.model;
     for (let attempt = 0; attempt <= retries; attempt++) {
         try {
-            return await fn();
+            return await fn({ ...config, model: currentModel });
         } catch (err) {
             if (attempt === retries) throw err;
             const friendly = formatError(err as Error);
-            log.system(
-                `⚠️ Attempt ${attempt + 1} failed: ${friendly}`,
-            );
+            log.system(`⚠️ Attempt ${attempt + 1} failed: ${friendly}`);
+
+            // On rate-limit errors, try falling back to the next model
+            if (isRateLimitError(err as Error)) {
+                const next = getNextModel(currentModel);
+                if (next) {
+                    log.system(`   🔄 Falling back: ${currentModel} → ${next}`);
+                    currentModel = next;
+                } else {
+                    log.system(`   No more fallback models available.`);
+                }
+            }
+
             log.system(`   Waiting ${RETRY_BACKOFF_MS / 1000}s before retry...`);
             await sleep(RETRY_BACKOFF_MS);
         }

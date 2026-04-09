@@ -2,8 +2,10 @@ import { CopilotClient } from "@github/copilot-sdk";
 import { resolve } from "path";
 import { setup, descent } from "./descent.js";
 import { log, setLogFile } from "./utils/logger.js";
+import { DEFAULT_MODEL } from "./models.js";
 
 export { setup, descent } from "./descent.js";
+export { DEFAULT_MODEL, MODEL_CHAIN, getNextModel } from "./models.js";
 export type {
     AgentConfig,
     Agents,
@@ -33,9 +35,9 @@ function parseArgs(): CliArgs {
     let maxIterations = 10;
     let maxReject = 3;
     let timeout = 60;
-    let implementorModel = "claude-opus-4.6";
-    let evaluatorModel = "claude-opus-4.6";
-    let terminatorModel = "claude-opus-4.6";
+    let implementorModel = DEFAULT_MODEL;
+    let evaluatorModel = DEFAULT_MODEL;
+    let terminatorModel = DEFAULT_MODEL;
 
     for (let i = 0; i < args.length; i++) {
         const arg = args[i]!;
