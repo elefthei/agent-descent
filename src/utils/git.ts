@@ -1,8 +1,13 @@
 import { execFileSync } from "child_process";
 
 export function getGitDiff(base?: string): string {
-    const args = base ? ["diff", base] : ["diff"];
-    return execFileSync("git", args, { encoding: "utf-8" });
+    // Stage everything first so new/untracked files appear in the diff
+    execFileSync("git", ["add", "-A"]);
+    const args = base ? ["diff", "--staged", base] : ["diff", "--staged"];
+    const diff = execFileSync("git", args, { encoding: "utf-8" });
+    // Unstage so the evaluator's approve/reject flow controls the final commit
+    execFileSync("git", ["reset", "HEAD"], { stdio: "ignore" });
+    return diff;
 }
 
 export function getHeadSha(): string {
