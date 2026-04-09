@@ -306,10 +306,11 @@ export async function descent(
             writeFileSync(
                 ".descend/evaluator/report.md",
                 [
-                    "# Initial State",
+                    "# Error Report",
                     "",
-                    "Previous iteration encountered a system error (not a code quality issue).",
-                    "Focus on making progress toward the goal.",
+                    `Iteration ${iteration} failed: ${message}`,
+                    "",
+                    "The implementor should retry the previous approach or try a different strategy.",
                 ].join("\n"),
             );
             gitCommitDescendOnly(iteration, `error: ${message}`);
