@@ -41,3 +41,5 @@ Goal: "Add a REST API with CRUD for todos, with tests"
 **terminator/goal.md**:
 > **Termination Condition**: All 4 CRUD endpoints implemented, return valid JSON, and have passing tests.
 > **Done Metric**: Tested endpoint count = 4.
+
+**Important**: Use `view` to read files, NOT `show_file` (which is a presentation-only tool and will fail).

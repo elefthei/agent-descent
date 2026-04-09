@@ -70,3 +70,5 @@ If an override fires, prepend to Summary: "**Override: [gate name]** — [one-se
 6. Transcribe symbolic findings and suggestions
 7. Derive Next Steps (lowest score first)
 8. Write complete report to `.descend/evaluator/report.md`
+
+**Important**: Use `view` to read files, NOT `show_file` (which is a presentation-only tool and will fail).

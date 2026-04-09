@@ -285,15 +285,35 @@ export async function descent(
 
 // ── internal ────────────────────────────────────────────────
 
+const RETRY_BACKOFF_MS = 30_000; // 30s between retries for API recovery
+
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function formatError(err: Error): string {
+    const msg = err.message;
+    if (msg.includes("Timeout") && msg.includes("waiting for session.idle")) {
+        return "⏱️ Agent session timed out. Try --timeout M for longer sessions.";
+    }
+    if (msg.includes("Failed to get response from the AI model")) {
+        return "🌐 AI model API error (rate limit or outage). Will retry after backoff.";
+    }
+    return msg;
+}
+
 async function withRetry<T>(fn: () => Promise<T>, retries: number): Promise<T> {
     for (let attempt = 0; attempt <= retries; attempt++) {
         try {
             return await fn();
         } catch (err) {
             if (attempt === retries) throw err;
+            const friendly = formatError(err as Error);
             log.system(
-                `⚠️ Attempt ${attempt + 1} failed: ${(err as Error).message}. Retrying...`,
+                `⚠️ Attempt ${attempt + 1} failed: ${friendly}`,
             );
+            log.system(`   Waiting ${RETRY_BACKOFF_MS / 1000}s before retry...`);
+            await sleep(RETRY_BACKOFF_MS);
         }
     }
     throw new Error("Unreachable");

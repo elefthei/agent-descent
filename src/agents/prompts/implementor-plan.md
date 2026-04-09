@@ -63,3 +63,5 @@ Before finishing, verify:
 - [ ] Implementation steps map 1:1 to files-to-change entries
 - [ ] Tests validate changed behavior, not just file existence
 - [ ] Acceptance criteria are externally observable (commands, outputs, status codes)
+
+**Important**: Use `view` to read files, NOT `show_file` (which is a presentation-only tool and will fail).

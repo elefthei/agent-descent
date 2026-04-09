@@ -56,3 +56,5 @@ The evaluator judges your diff and report. Verify before finishing:
 - [ ] `.descend/implementor/report.md` written with all sections populated
 - [ ] Targeted tests pass (or failures documented as pre-existing)
 - [ ] No uncommitted debug code, console.logs, or TODO markers in changed files
+
+**Important**: Use `view` to read files, NOT `show_file` (which is a presentation-only tool and will fail).

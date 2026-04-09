@@ -48,3 +48,5 @@ suggestions: ["Add integration tests for /api/sessions endpoint", "Enable eslint
 2. Run each check per the execution order and gates above
 3. Record available checks, failures/warnings, and verification gaps
 4. Call `submit_symbolic_report` with results
+
+**Important**: Use `view` to read files, NOT `show_file` (which is a presentation-only tool and will fail).

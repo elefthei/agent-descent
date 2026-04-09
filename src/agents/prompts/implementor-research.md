@@ -46,3 +46,5 @@ Verify research collectively covers:
 - [ ] Dependencies and ordering constraints identified
 - [ ] Each evaluator concern directly addressed (when report exists)
 - [ ] Open questions flagged for plan phase
+
+**Important**: Use `view` to read files, NOT `show_file` (which is a presentation-only tool and will fail).
