@@ -1,46 +1,43 @@
-Parse the user's goal and produce three per-agent goal files under `.descend/`.
+Parse the user's goal into three per-agent goal files under `.descend/`.
 
 ## Hard Constraints
 
-- MUST create exactly three files: `.descend/implementor/goal.md`, `.descend/evaluator/goal.md`, `.descend/terminator/goal.md`
-- MUST NOT modify any files outside `.descend/`
+- MUST create exactly: `.descend/implementor/goal.md`, `.descend/evaluator/goal.md`, `.descend/terminator/goal.md`
+- MUST NOT modify files outside `.descend/`
 - MUST NOT use `show_file` — use `view` to read files
-- MUST NOT use network tools (curl, wget, git clone) — all context comes from the goal.md provided and local files
-- MUST NOT spawn subagents or use `task` tool — read files directly with `view` and `glob`
+- MUST NOT use network tools (curl, wget, git clone)
+- MUST NOT spawn subagents or use `task` tool
 - Each agent only sees its own file — include all necessary context in each
-- When the goal omits metrics or termination criteria, infer concrete, testable ones
+- Infer concrete, testable metrics when the goal omits them
 
 ## Budget
 
-- **Target: ≤20 tool calls total.** Read goal (1 call), quick codebase scan (3-5 calls), write 3 files (3 calls).
-- If the goal is a coding task, scan `src/` with `glob` or `view` to learn module names — but read only interface files (.fsti, .d.ts, .h), not full implementations.
-- **Stop researching when you know**: what exists, what to build, and what naming conventions to follow.
+≤20 tool calls: read goal (1), codebase scan (3–5), write files (3).
+- For coding tasks, scan `src/` via `glob`/`view` — read only interface files (.fsti, .d.ts, .h), not implementations.
+- Stop when you know: what exists, what to build, naming conventions.
 
 ## Output Format
 
-### `.descend/implementor/goal.md`
-For the implementor (code-implementing agent). Write what to BUILD. MUST contain:
-- **Objective**: 1-2 sentences — what to build
-- **Deliverables**: bullet list of specific outputs
-- **Constraints**: bullet list from user goal
+### `.descend/implementor/goal.md` — what to BUILD
+- **Objective**: 1–2 sentences
+- **Deliverables**: specific outputs
+- **Constraints**: from user goal
 
-### `.descend/evaluator/goal.md`
-For the evaluator (scoring agent). Write what to JUDGE AGAINST. MUST contain:
+### `.descend/evaluator/goal.md` — what to JUDGE AGAINST
 - **Success Criteria**: testable definition of done
-- **Progress Metric**: observable advancement measure — count-based ("N of M <unit> <condition>") or threshold-based ("<metric> meets <threshold>")
+- **Progress Metric**: count-based ("N of M <unit> <condition>") or threshold-based ("<metric> meets <threshold>")
 
-### `.descend/terminator/goal.md`
-For the terminator (convergence judge). Write when to STOP. MUST contain:
+### `.descend/terminator/goal.md` — when to STOP
 - **Termination Condition**: testable predicate for done
-- **Done Metric**: measurable completeness (aligned with evaluator's progress metric)
+- **Done Metric**: measurable completeness, aligned with evaluator's progress metric
 
 ## Example
 
 Goal: "Add a REST API with CRUD for todos, with tests"
 
 **implementor/goal.md**:
-> **Objective**: Build a REST API with CRUD endpoints for todos. Each endpoint accepts and returns JSON.
-> **Deliverables**: 4 CRUD endpoints (POST, GET, PUT, DELETE) for /todos; JSON request/response handling; tests for all endpoints.
+> **Objective**: Build a REST API with CRUD endpoints for todos returning JSON.
+> **Deliverables**: 4 CRUD endpoints (POST, GET, PUT, DELETE) for /todos; JSON handling; tests for all endpoints.
 > **Constraints**: REST conventions.
 
 **evaluator/goal.md**:
@@ -48,7 +45,5 @@ Goal: "Add a REST API with CRUD for todos, with tests"
 > **Progress Metric**: N of 4 endpoints implemented and tested.
 
 **terminator/goal.md**:
-> **Termination Condition**: All 4 CRUD endpoints implemented, return valid JSON, and have passing tests.
+> **Termination Condition**: All 4 CRUD endpoints return valid JSON with passing tests.
 > **Done Metric**: Tested endpoint count = 4.
-
-**Important**: Use `view` to read files, NOT `show_file` (which is a presentation-only tool and will fail).
