@@ -2,7 +2,7 @@ import { CopilotClient } from "@github/copilot-sdk";
 import { resolve } from "path";
 import { setup, descent } from "./descent.js";
 import { log, setLogFile } from "./utils/logger.js";
-import { DEFAULT_MODEL } from "./models.js";
+import { DEFAULT_MODEL, SUPPORTED_MODELS } from "./models.js";
 
 export { setup, descent } from "./descent.js";
 export { DEFAULT_MODEL, MODEL_CHAIN, getNextModel } from "./models.js";
@@ -64,7 +64,20 @@ function parseArgs(): CliArgs {
         console.error(
             "Usage: agent-descent <goal.md> [--max-iterations N] [--max-reject N] [--timeout MINUTES] [--log FILE] [--implementor-model M] [--evaluator-model M] [--terminator-model M]",
         );
+        console.error(`\nSupported models: ${[...SUPPORTED_MODELS].join(", ")}`);
         process.exit(1);
+    }
+
+    for (const [flag, value] of [
+        ["--implementor-model", implementorModel],
+        ["--evaluator-model", evaluatorModel],
+        ["--terminator-model", terminatorModel],
+    ] as const) {
+        if (!SUPPORTED_MODELS.has(value)) {
+            console.error(`Invalid model for ${flag}: "${value}"`);
+            console.error(`Supported: ${[...SUPPORTED_MODELS].join(", ")}`);
+            process.exit(1);
+        }
     }
 
     return {

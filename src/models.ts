@@ -16,6 +16,8 @@ export const MODEL_CHAIN: ModelEntry[] = [
     { id: "claude-sonnet-4.6",  rpmLimit: 1 },
 ];
 
+export const SUPPORTED_MODELS = new Set(MODEL_CHAIN.map((m) => m.id));
+
 export const DEFAULT_MODEL = MODEL_CHAIN[0]!.id;
 
 /**
