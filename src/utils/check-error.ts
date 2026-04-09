@@ -3,13 +3,7 @@ import { approveAll, defineTool } from "@github/copilot-sdk";
 import { z } from "zod";
 import { existsSync, readFileSync } from "fs";
 import type { AgentConfig } from "../types.js";
-import { DEFAULT_TIMEOUT } from "../types.js";
-import { attachLogger, log } from "../utils/logger.js";
-
-interface ErrorCheckResult {
-    hasError: boolean;
-    reason: string;
-}
+import { attachLogger } from "../utils/logger.js";
 
 /**
  * Agentic check: spins up a lightweight agent session to read a file
@@ -39,8 +33,7 @@ export async function checkPreviousError(
         "API error",
         "retried",
     ];
-    const hasSuspiciousContent = errorSignals.some((s) => content.includes(s));
-    if (!hasSuspiciousContent) return false;
+    if (!errorSignals.some((s) => content.includes(s))) return false;
 
     // Agentic check for ambiguous cases
     const box = { result: null as { hasError: boolean; reason: string } | null };
@@ -52,7 +45,7 @@ export async function checkPreviousError(
             reason: z.string().describe("Brief explanation"),
         }),
         skipPermission: true,
-        handler: async (params: ErrorCheckResult) => {
+        handler: async (params: { hasError: boolean; reason: string }) => {
             box.result = params;
             return `Checked: hasError=${params.hasError}`;
         },
