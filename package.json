@@ -11,7 +11,7 @@
     ],
     "scripts": {
         "start": "tsx src/index.ts",
-        "build": "tsc && node -e \"require('fs').cpSync('src/agents/prompts','dist/agents/prompts',{recursive:true})\"",
+        "build": "npx tsc && node -e \"require('fs').cpSync('src/agents/prompts','dist/agents/prompts',{recursive:true})\"",
         "prepare": "npm run build",
         "lint": "tsc --noEmit"
     },
