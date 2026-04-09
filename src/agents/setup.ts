@@ -1,6 +1,6 @@
 import type { CopilotClient } from "@github/copilot-sdk";
 import { approveAll } from "@github/copilot-sdk";
-import { readFileSync, writeFileSync, mkdirSync } from "fs";
+import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync } from "fs";
 import type { AgentConfig } from "../types.js";
 import { DEFAULT_TIMEOUT } from "../types.js";
 import { gitCommitDescendOnly } from "../utils/git.js";
@@ -13,6 +13,12 @@ export async function runSetup(
     goalPath: string,
 ): Promise<void> {
     log.setup("🎯 Reading goal.md and projecting per-agent goals...");
+
+    // Clean slate — remove any partial .descend/ state
+    if (existsSync(".descend")) {
+        log.setup("   Clearing previous .descend/ state...");
+        rmSync(".descend", { recursive: true, force: true });
+    }
 
     mkdirSync(".descend/implementor", { recursive: true });
     mkdirSync(".descend/evaluator", { recursive: true });

@@ -10,7 +10,7 @@ import { runEvaluator, runRadicalPlan } from "./agents/evaluator.js";
 import { runTerminator } from "./agents/terminator.js";
 import { gitCommitAll, gitRevertToBaseline, gitCommitDescendOnly, getHeadSha, getGitDiff } from "./utils/git.js";
 import { log } from "./utils/logger.js";
-import { saveState, archiveIteration, detectStagnation, consecutiveRejects, type DescentState, type IterationRecord } from "./utils/state.js";
+import { saveState, loadState, archiveIteration, detectStagnation, consecutiveRejects, isValidState, type DescentState, type IterationRecord } from "./utils/state.js";
 import { readFileOrDefault } from "./utils/files.js";
 import { readFileSync } from "fs";
 import { DEFAULT_MODEL, getNextModel, isRateLimitError } from "./models.js";
@@ -51,22 +51,16 @@ export interface DescentResult {
 // ── setup ───────────────────────────────────────────────────
 
 /**
- * Run the setup agent to read goal.md and project per-agent goal files into `.descend/`.
- * Returns configured agent handles for the descent loop.
+ * Initialize or resume the descent loop.
+ * If .descend/ has valid state (state.json + 3 goal files), skip setup and resume.
+ * Otherwise, run the setup agent to project goal.md into per-agent goal files.
  */
 export async function setup(
     client: CopilotClient,
     goalPath: string,
     options?: SetupOptions,
 ): Promise<Agents> {
-    const config: AgentConfig = {
-        model: options?.implementorModel ?? DEFAULT_MODEL,
-        reasoningEffort: "high",
-        timeout: options?.timeout,
-    };
-    await runSetup(client, config, goalPath);
-
-    return {
+    const agents: Agents = {
         implementor: {
             model: options?.implementorModel ?? DEFAULT_MODEL,
             reasoningEffort: "high",
@@ -83,6 +77,23 @@ export async function setup(
             timeout: options?.timeout,
         },
     };
+
+    if (isValidState()) {
+        const state = loadState();
+        const prevIterations = state?.history.length ?? 0;
+        log.system(`♻️  Resuming — .descend/ has valid state (${prevIterations} previous iteration(s))`);
+        return agents;
+    }
+
+    // Fresh start — setup agent projects goal.md
+    const config: AgentConfig = {
+        model: options?.implementorModel ?? DEFAULT_MODEL,
+        reasoningEffort: "high",
+        timeout: options?.timeout,
+    };
+    await runSetup(client, config, goalPath);
+
+    return agents;
 }
 
 // ── descent ─────────────────────────────────────────────────
@@ -99,9 +110,13 @@ export async function descent(
     const maxIterations = options?.maxIterations ?? 10;
     const maxRetries = options?.maxRetries ?? 2;
     const maxReject = options?.maxReject ?? 3;
-    let baseline = getHeadSha();
 
-    const state: DescentState = {
+    // Resume from existing state or start fresh
+    const existingState = loadState();
+    const startIteration = existingState ? existingState.history.length + 1 : 1;
+    let baseline = existingState?.baselineCommit ?? getHeadSha();
+
+    const state: DescentState = existingState ?? {
         iteration: 0,
         baselineCommit: baseline,
         phase: "init",
@@ -109,7 +124,11 @@ export async function descent(
     };
     saveState(state);
 
-    for (let iteration = 1; iteration <= maxIterations; iteration++) {
+    if (startIteration > 1) {
+        log.system(`♻️  Continuing from iteration ${startIteration} (${state.history.length} previous)`);
+    }
+
+    for (let iteration = startIteration; iteration <= maxIterations; iteration++) {
         log.system(`\n${"═".repeat(60)}`);
         log.system(`  Iteration ${iteration} / ${maxIterations}`);
         log.system(`${"═".repeat(60)}\n`);

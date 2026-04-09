@@ -1,5 +1,20 @@
 import { readFileSync, writeFileSync, mkdirSync, renameSync, existsSync } from "fs";
 
+const REQUIRED_FILES = [
+    ".descend/state.json",
+    ".descend/implementor/goal.md",
+    ".descend/evaluator/goal.md",
+    ".descend/terminator/goal.md",
+];
+
+/**
+ * Check if .descend/ has a valid resumable state:
+ * state.json + all 3 goal files must exist.
+ */
+export function isValidState(): boolean {
+    return REQUIRED_FILES.every((f) => existsSync(f));
+}
+
 export interface AxisScoresRecord {
     features: number;
     reliability: number;
