@@ -45,6 +45,9 @@ function buildEvalContext(baselineSha?: string): EvalContext {
 
 function buildAxisPrompt(evalCtx: EvalContext): string {
     return [
+        `## Working Directory: ${process.cwd()}`,
+        "Use absolute paths for all file operations.",
+        "",
         "## Evaluator Goal",
         evalCtx.evalGoal,
         "",
@@ -127,6 +130,9 @@ class SymbolicEvaluatorAgent implements Agent<EvalContext, SymbolicResult> {
         attachLogger(session, this.name);
 
         const prompt = [
+            `## Working Directory: ${process.cwd()}`,
+            "Use absolute paths for all file operations.",
+            "",
             "## Evaluator Goal",
             ctx.evalGoal,
             "",

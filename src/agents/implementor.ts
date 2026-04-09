@@ -33,6 +33,9 @@ export async function runImplementorResearch(
 
     await session.sendAndWait({
         prompt: [
+            `## Working Directory: ${process.cwd()}`,
+            "Use absolute paths for all file operations.",
+            "",
             "## Goal",
             goalFile,
             "",
@@ -75,6 +78,9 @@ export async function runImplementorPlan(
 
     await session.sendAndWait({
         prompt: [
+            `## Working Directory: ${process.cwd()}`,
+            "Use absolute paths for all file operations.",
+            "",
             "## Goal",
             goalFile,
             "",
@@ -115,6 +121,9 @@ export async function runImplementorExec(
 
     await session.sendAndWait({
         prompt: [
+            `## Working Directory: ${process.cwd()}`,
+            "Use absolute paths for all file operations.",
+            "",
             "## Goal",
             goalFile,
             "",

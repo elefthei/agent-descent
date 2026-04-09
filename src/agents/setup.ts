@@ -33,6 +33,10 @@ export async function runSetup(
 
     await session.sendAndWait({
         prompt: [
+            `## Working Directory: ${process.cwd()}`,
+            "",
+            "Use absolute paths for all file operations (view, glob, grep, create, edit).",
+            "",
             "## Goal File Contents",
             "",
             goalContent,
