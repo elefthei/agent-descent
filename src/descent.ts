@@ -14,6 +14,7 @@ import { saveState, loadState, archiveIteration, detectStagnation, consecutiveRe
 import { readFileOrDefault } from "./utils/files.js";
 import { readFileSync } from "fs";
 import { DEFAULT_MODEL, getNextModel, isRateLimitError } from "./models.js";
+import { checkPreviousError } from "./utils/check-error.js";
 
 // ── Public types ────────────────────────────────────────────
 
@@ -170,6 +171,16 @@ export async function descent(
             // Implementor: Research → Plan → Execute
             const implRetries = agents.implementor.retryBudget ?? maxRetries;
 
+            // Check if evaluator's report from previous iteration has a system error
+            if (await checkPreviousError(client, agents.evaluator, ".descend/evaluator/report.md")) {
+                log.system("⚠️ Evaluator report contains system error — re-running evaluator");
+                await withRetry(
+                    (cfg) => runEvaluator(client, cfg, baseline),
+                    agents.evaluator,
+                    agents.evaluator.retryBudget ?? maxRetries,
+                );
+            }
+
             if (!options?.skipResearch) {
                 log.system("📚 Implementor: Research phase...");
                 await withRetry(
@@ -204,6 +215,16 @@ export async function descent(
             // Evaluator: Review + decide (diff against baseline for owned changes only)
             state.phase = "evaluator";
             saveState(state);
+
+            // Check if implementor's report has a system error
+            if (await checkPreviousError(client, agents.implementor, ".descend/implementor/report.md")) {
+                log.system("⚠️ Implementor report contains system error — re-running implementor:exec");
+                await withRetry(
+                    (cfg) => runImplementorExec(client, cfg),
+                    agents.implementor,
+                    implRetries,
+                );
+            }
 
             log.system("🔍 Evaluator: Reviewing changes...");
             const evalResult = await withRetry(
@@ -276,6 +297,18 @@ export async function descent(
             // Terminator: Continue or stop?
             state.phase = "terminator";
             saveState(state);
+
+            // Check if evaluator's report has a system error
+            if (await checkPreviousError(client, agents.evaluator, ".descend/evaluator/report.md")) {
+                log.system("⚠️ Evaluator report contains system error — re-running evaluator");
+                const retryEval = await withRetry(
+                    (cfg) => runEvaluator(client, cfg, baseline),
+                    agents.evaluator,
+                    agents.evaluator.retryBudget ?? maxRetries,
+                );
+                // Update evalResult for the terminator
+                Object.assign(evalResult, retryEval);
+            }
 
             log.system("🎯 Terminator: Checking convergence...");
             const termResult = await withRetry(
