@@ -6,7 +6,7 @@ import {
     runImplementorPlan,
     runImplementorExec,
 } from "./agents/implementor.js";
-import { runEvaluator, runRadicalPlan } from "./agents/evaluator.js";
+import { runEvaluator, runRadicalPlan, evaluateTerminator } from "./agents/evaluator.js";
 import { runTerminator } from "./agents/terminator.js";
 import { gitCommitAll, gitRevertToBaseline, gitCommitDescendOnly, getHeadSha, getGitDiff } from "./utils/git.js";
 import { log } from "./utils/logger.js";
@@ -311,6 +311,24 @@ export async function descent(
             }
 
             log.system("🎯 Terminator: Checking convergence...");
+
+            // Rule-based pre-check (fast, deterministic)
+            const evalResults = new Map<string, { score: number; feedback: string }>([
+                ["features", { score: evalResult.scores.features, feedback: evalResult.issues.features.join("; ") }],
+                ["reliability", { score: evalResult.scores.reliability, feedback: evalResult.issues.reliability.join("; ") }],
+                ["modularity", { score: evalResult.scores.modularity, feedback: evalResult.issues.modularity.join("; ") }],
+            ]);
+            const ruleResult = evaluateTerminator(evalResults, state.history, iteration);
+            log.system(`   Rule check: ${ruleResult.result} — ${ruleResult.feedback}`);
+
+            if (ruleResult.result === "SUCCESS") {
+                state.phase = "done";
+                saveState(state);
+                log.system(`\n🏁 Converged after ${iteration} iteration(s): ${ruleResult.feedback}`);
+                return { iterations: iteration, converged: true, reason: ruleResult.feedback };
+            }
+
+            // Agentic terminator for nuanced cases (CONTINUE from rules = defer to agent)
             const termResult = await withRetry(
                 (cfg) => runTerminator(client, cfg, {
                     evalDecision: evalResult,

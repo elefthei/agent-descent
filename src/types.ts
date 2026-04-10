@@ -33,3 +33,21 @@ export interface Agent<TContext, TResult> {
 export interface Orchestrator<TContext, TResult> extends Agent<TContext, TResult> {
     agents: Agent<any, any>[];
 }
+
+// ── Evaluator Interface ─────────────────────────────────────
+
+/** Uniform result from any evaluator (axis, symbolic, or orchestrator). */
+export interface EvaluatorResult {
+    score: number;
+    feedback: string;
+}
+
+// ── Gatekeeper Result ───────────────────────────────────────
+
+import type { Tri } from "./rules.js";
+
+/** Result of gatekeeper/terminator propositional logic evaluation. */
+export interface GatekeeperResult {
+    result: Tri;
+    feedback: string;
+}
