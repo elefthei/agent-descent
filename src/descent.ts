@@ -9,6 +9,7 @@ import {
 import { runEvaluator, runRadicalPlan, evaluateTerminator } from "./agents/evaluator.js";
 import { runTerminator } from "./agents/terminator.js";
 import { runReliabilityCampaign } from "./agents/campaigns/reliability.js";
+import { runModularityCampaign } from "./agents/campaigns/modularity.js";
 import { gitCommitAll, gitRevertToBaseline, gitCommitDescendOnly, getHeadSha, getGitDiff } from "./utils/git.js";
 import { log } from "./utils/logger.js";
 import { saveState, loadState, archiveIteration, detectStagnation, consecutiveRejects, axisDeclining, isValidState, type DescentState, type IterationRecord } from "./utils/state.js";
@@ -284,6 +285,20 @@ export async function descent(
 
                 const campaignResult = await withRetry(
                     (cfg) => runReliabilityCampaign(client, cfg),
+                    agents.implementor,
+                    agents.implementor.retryBudget ?? maxRetries,
+                );
+                log.system(`   ← campaign: [${[...campaignResult.kinds].join(", ")}] ${campaignResult.feedback}`);
+            }
+
+            // Modularity campaign: if modularity score declining 3+ iterations
+            if (axisDeclining(state.history, "modularity", 3)) {
+                log.system("\n🏗️ Modularity declining 3+ iterations — launching refactoring campaign...");
+                state.phase = "campaign:modularity";
+                saveState(state);
+
+                const campaignResult = await withRetry(
+                    (cfg) => runModularityCampaign(client, cfg),
                     agents.implementor,
                     agents.implementor.retryBudget ?? maxRetries,
                 );

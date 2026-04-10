@@ -6,6 +6,7 @@ const COLORS: Record<string, string> = {
     "implementor:plan": "\x1b[36m",
     "implementor:exec": "\x1b[36m",
     "campaign:reliability": "\x1b[34m",
+    "campaign:modularity": "\x1b[34m",
     "evaluator": "\x1b[33m",
     "evaluator:features": "\x1b[33m",
     "evaluator:reliability": "\x1b[33m",
