@@ -338,16 +338,16 @@ export async function descent(
                 agents.terminator.retryBudget ?? maxRetries,
             );
 
-            if (termResult.decision === "stop") {
+            if (termResult.result === "SUCCESS" || termResult.result === "FAILURE") {
                 state.phase = "done";
                 saveState(state);
                 log.system(
-                    `\n🏁 Converged after ${iteration} iteration(s): ${termResult.reason}`,
+                    `\n🏁 ${termResult.result} after ${iteration} iteration(s): ${termResult.feedback}`,
                 );
-                return { iterations: iteration, converged: true, reason: termResult.reason };
+                return { iterations: iteration, converged: termResult.result === "SUCCESS", reason: termResult.feedback };
             }
 
-            log.system(`🔄 Continuing: ${termResult.reason}`);
+            log.system(`🔄 Continuing: ${termResult.feedback}`);
         } catch (err) {
             const message = (err as Error).message;
             log.system(

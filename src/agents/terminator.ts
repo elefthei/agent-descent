@@ -1,15 +1,13 @@
 import type { CopilotClient } from "@github/copilot-sdk";
-import { approveAll } from "@github/copilot-sdk";
-import {
-    createTerminatorDecisionTool,
-    type TerminatorDecision,
-    type EvaluatorDecision,
-} from "../tools/decisions.js";
+import { approveAll, defineTool } from "@github/copilot-sdk";
+import { z } from "zod";
 import { attachLogger } from "../utils/logger.js";
 import { readFileOrDefault } from "../utils/files.js";
 import { DEFAULT_TIMEOUT } from "../types.js";
 import { loadPrompt } from "../utils/prompt.js";
-import type { AgentConfig } from "../types.js";
+import type { AgentConfig, GatekeeperResult, EvaluatorResult } from "../types.js";
+import type { Tri } from "../rules.js";
+import type { EvaluatorDecision } from "../tools/decisions.js";
 import type { IterationRecord } from "../utils/state.js";
 
 export interface TerminatorInput {
@@ -17,12 +15,35 @@ export interface TerminatorInput {
     history: IterationRecord[];
 }
 
+function createGatekeeperTool() {
+    const box = { result: null as GatekeeperResult | null };
+
+    const tool = defineTool("make_decision", {
+        description: "Submit your convergence decision: SUCCESS (stop, goal achieved), FAILURE (stop, diverged/unrecoverable), or CONTINUE (keep iterating).",
+        parameters: z.object({
+            result: z
+                .enum(["SUCCESS", "FAILURE", "CONTINUE"])
+                .describe("SUCCESS=goal achieved, FAILURE=diverged/unrecoverable, CONTINUE=more work needed"),
+            feedback: z
+                .string()
+                .describe("Brief explanation of your decision"),
+        }),
+        skipPermission: true,
+        handler: async (params: { result: Tri; feedback: string }) => {
+            box.result = params;
+            return `Decision recorded: ${params.result}`;
+        },
+    });
+
+    return { tool, getResult: () => box.result };
+}
+
 export async function runTerminator(
     client: CopilotClient,
     ctx: AgentConfig,
     input?: TerminatorInput,
-): Promise<TerminatorDecision> {
-    const { tool, getResult } = createTerminatorDecisionTool();
+): Promise<GatekeeperResult> {
+    const { tool, getResult } = createGatekeeperTool();
 
     const session = await client.createSession({
         workingDirectory: process.cwd(),
@@ -45,16 +66,11 @@ export async function runTerminator(
         "No evaluator report found.",
     );
 
-    // Build structured context for the terminator
     const structuredSection = input ? [
         "",
         "## Structured Evaluation Data",
         `- **Decision**: ${input.evalDecision.decision}`,
         `- **Scores**: features=${input.evalDecision.scores.features}, reliability=${input.evalDecision.scores.reliability}, modularity=${input.evalDecision.scores.modularity}`,
-        `- **Tests**: ${input.evalDecision.testsStatus}`,
-        `- **Feature issues**: ${input.evalDecision.issues.features.length === 0 ? "none" : input.evalDecision.issues.features.map(i => `\n  - ${i}`).join("")}`,
-        `- **Reliability issues**: ${input.evalDecision.issues.reliability.length === 0 ? "none" : input.evalDecision.issues.reliability.map(i => `\n  - ${i}`).join("")}`,
-        `- **Modularity issues**: ${input.evalDecision.issues.modularity.length === 0 ? "none" : input.evalDecision.issues.modularity.map(i => `\n  - ${i}`).join("")}`,
         `- **Remaining work**: ${input.evalDecision.remainingWork.length === 0 ? "none" : input.evalDecision.remainingWork.map(i => `\n  - ${i}`).join("")}`,
         "",
         "## Score History",
@@ -73,7 +89,7 @@ export async function runTerminator(
             evalReport,
             ...structuredSection,
             "",
-            "Decide: should the loop CONTINUE or STOP?",
+            "Decide: SUCCESS (goal achieved), FAILURE (diverged/unrecoverable), or CONTINUE (more work needed).",
             "Call the make_decision tool with your verdict.",
         ].join("\n"),
     }, ctx.timeout ?? DEFAULT_TIMEOUT);

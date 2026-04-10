@@ -22,40 +22,6 @@ export interface EvaluatorDecision {
     testsStatus: "pass" | "fail" | "none" | "partial";
 }
 
-export interface TerminatorDecision {
-    decision: "continue" | "stop";
-    reason: string;
-}
-
-export function createTerminatorDecisionTool() {
-    let result: TerminatorDecision | null = null;
-
-    const tool = defineTool("make_decision", {
-        description: "Decide whether the loop should continue or stop",
-        parameters: z.object({
-            decision: z
-                .enum(["continue", "stop"])
-                .describe("Whether to continue iterating or stop"),
-            reason: z
-                .string()
-                .describe("Why you made this decision"),
-        }),
-        skipPermission: true,
-        handler: async ({
-            decision,
-            reason,
-        }: {
-            decision: "continue" | "stop";
-            reason: string;
-        }) => {
-            result = { decision, reason };
-            return `Decision recorded: ${decision}`;
-        },
-    });
-
-    return { tool, getResult: () => result };
-}
-
 // ── Axis Score Tool ─────────────────────────────────────────
 
 export interface AxisResult {
