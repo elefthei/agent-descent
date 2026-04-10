@@ -126,3 +126,18 @@ export function detectStagnation(history: IterationRecord[]): string | null {
 
     return null;
 }
+
+/**
+ * Detect if a specific axis score has been declining for `window` consecutive iterations.
+ */
+export function axisDeclining(history: IterationRecord[], axis: keyof AxisScoresRecord, window: number = 3): boolean {
+    if (history.length < window) return false;
+    const recent = history.slice(-window);
+    const scores = recent.map(r => r.scores?.[axis]).filter((s): s is number => s != null);
+    if (scores.length < window) return false;
+    // Check strictly decreasing
+    for (let i = 1; i < scores.length; i++) {
+        if (scores[i]! >= scores[i - 1]!) return false;
+    }
+    return true;
+}

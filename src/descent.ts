@@ -8,9 +8,10 @@ import {
 } from "./agents/implementor.js";
 import { runEvaluator, runRadicalPlan, evaluateTerminator } from "./agents/evaluator.js";
 import { runTerminator } from "./agents/terminator.js";
+import { runReliabilityCampaign } from "./agents/campaigns/reliability.js";
 import { gitCommitAll, gitRevertToBaseline, gitCommitDescendOnly, getHeadSha, getGitDiff } from "./utils/git.js";
 import { log } from "./utils/logger.js";
-import { saveState, loadState, archiveIteration, detectStagnation, consecutiveRejects, isValidState, type DescentState, type IterationRecord } from "./utils/state.js";
+import { saveState, loadState, archiveIteration, detectStagnation, consecutiveRejects, axisDeclining, isValidState, type DescentState, type IterationRecord } from "./utils/state.js";
 import { readFileOrDefault } from "./utils/files.js";
 import { readFileSync } from "fs";
 import { DEFAULT_MODEL, getNextModel, isRateLimitError } from "./models.js";
@@ -273,6 +274,20 @@ export async function descent(
             const warning = detectStagnation(state.history);
             if (warning) {
                 log.system(`⚠️ Stagnation warning: ${warning}`);
+            }
+
+            // Reliability campaign: if reliability score declining 3+ iterations
+            if (axisDeclining(state.history, "reliability", 3)) {
+                log.system("\n🛡️ Reliability declining 3+ iterations — launching reliability campaign...");
+                state.phase = "campaign:reliability";
+                saveState(state);
+
+                const campaignResult = await withRetry(
+                    (cfg) => runReliabilityCampaign(client, cfg),
+                    agents.implementor,
+                    agents.implementor.retryBudget ?? maxRetries,
+                );
+                log.system(`   ← campaign: [${[...campaignResult.kinds].join(", ")}] ${campaignResult.feedback}`);
             }
 
             // RADICAL PLAN: if too many consecutive rejections, evaluator does deep planning
