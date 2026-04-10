@@ -62,3 +62,13 @@ export interface ImplementorResult {
     feedback: string;
     iterations: number;
 }
+
+// ── Evaluator Orchestrator Result ───────────────────────────
+
+/** Full result from the evaluator orchestrator — carries per-axis results + gate decision. */
+export interface EvalOrchestratorResult extends EvaluatorResult {
+    /** Per-axis evaluator results keyed by name (features, reliability, modularity, symbolic) */
+    axes: Map<string, EvaluatorResult>;
+    /** Gate decision: approve or reject */
+    decision: "approve" | "reject";
+}

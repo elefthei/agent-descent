@@ -13,7 +13,7 @@ export type {
     DescentOptions,
     DescentResult,
 } from "./descent.js";
-export type { Agent, Orchestrator, EvaluatorResult, GatekeeperResult, ImplementorKind, ImplementorResult } from "./types.js";
+export type { Agent, Orchestrator, EvaluatorResult, EvalOrchestratorResult, GatekeeperResult, ImplementorKind, ImplementorResult } from "./types.js";
 export { Gate, type Tri, type Rule } from "./rules.js";
 
 // ── CLI ─────────────────────────────────────────────────────

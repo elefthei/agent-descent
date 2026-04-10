@@ -3,20 +3,14 @@ import { approveAll } from "@github/copilot-sdk";
 import {
     createAxisScoreTool,
     createSymbolicReportTool,
-    type EvaluatorDecision,
-    type AxisScores,
-    type AxisIssues,
 } from "../tools/decisions.js";
-import type { Agent, Orchestrator, AgentConfig, EvaluatorResult, GatekeeperResult } from "../types.js";
+import type { Agent, Orchestrator, AgentConfig, EvaluatorResult, EvalOrchestratorResult, GatekeeperResult } from "../types.js";
 import { DEFAULT_TIMEOUT } from "../types.js";
 import { Gate, type Rule } from "../rules.js";
 import { attachLogger, log } from "../utils/logger.js";
 import { getGitDiff } from "../utils/git.js";
 import { readFileOrDefault, readDirContents } from "../utils/files.js";
 import { loadPrompt } from "../utils/prompt.js";
-
-// Re-export for backward compatibility
-export type { EvaluatorDecision } from "../tools/decisions.js";
 
 // ── Shared context built once, passed to all subagents ──────
 
@@ -248,11 +242,11 @@ const modularityAgent = new AxisEvaluatorAgent("modularity");
 const symbolicAgent = new SymbolicEvaluatorAgent();
 const synthesizerAgent = new SynthesizerAgent();
 
-class EvaluatorOrchestrator implements Orchestrator<EvalInput, EvaluatorDecision> {
+class EvaluatorOrchestrator implements Orchestrator<EvalInput, EvalOrchestratorResult> {
     name = "evaluator";
     agents = [featuresAgent, reliabilityAgent, modularityAgent, symbolicAgent, synthesizerAgent];
 
-    async run(client: CopilotClient, config: AgentConfig, input: EvalInput): Promise<EvaluatorDecision> {
+    async run(client: CopilotClient, config: AgentConfig, input: EvalInput): Promise<EvalOrchestratorResult> {
         const evalCtx = buildEvalContext(input.baselineSha);
 
         // Run all evaluators sequentially, collect results
@@ -274,17 +268,9 @@ class EvaluatorOrchestrator implements Orchestrator<EvalInput, EvaluatorDecision
         const gateResult = approvalRule(results);
         const decision = gateResult === "SUCCESS" ? "approve" as const : "reject" as const;
 
-        // Build legacy types for backward compatibility
-        const scores: AxisScores = {
-            features: results.get("features")!.score,
-            reliability: results.get("reliability")!.score,
-            modularity: results.get("modularity")!.score,
-        };
-        const issues: AxisIssues = {
-            features: [results.get("features")!.feedback],
-            reliability: [results.get("reliability")!.feedback],
-            modularity: [results.get("modularity")!.feedback],
-        };
+        // Compute aggregate score + feedback
+        const scoringAxes = [...results.entries()].filter(([name]) => name !== "symbolic");
+        const maxScore = Math.max(...scoringAxes.map(([, r]) => r.score));
         const allFeedback = [...results.values()].map(r => r.feedback).filter(Boolean);
 
         // Run synthesizer to write report.md
@@ -292,14 +278,11 @@ class EvaluatorOrchestrator implements Orchestrator<EvalInput, EvaluatorDecision
         await synthesizerAgent.run(client, config, { evalCtx, results, decision });
         log.system("   ← report.md written");
 
-        const maxScore = Math.max(scores.features, scores.reliability, scores.modularity);
         return {
+            score: maxScore,
+            feedback: allFeedback.join("; "),
+            axes: results,
             decision,
-            summary: `features=${scores.features}, reliability=${scores.reliability}, modularity=${scores.modularity} (max=${maxScore}, gate=${gateResult})`,
-            scores,
-            issues,
-            remainingWork: allFeedback,
-            testsStatus: "none",
         };
     }
 }
@@ -384,13 +367,13 @@ export function evaluateTerminator(
     return { result: "CONTINUE", feedback: "No termination condition met" };
 }
 
-// ── Public API (unchanged signature) ────────────────────────
+// ── Public API ───────────────────────────────────────────────
 
 export async function runEvaluator(
     client: CopilotClient,
     ctx: AgentConfig,
     baselineSha?: string,
-): Promise<EvaluatorDecision> {
+): Promise<EvalOrchestratorResult> {
     return evaluatorOrchestrator.run(client, ctx, { baselineSha });
 }
 

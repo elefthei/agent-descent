@@ -5,13 +5,12 @@ import { attachLogger } from "../utils/logger.js";
 import { readFileOrDefault } from "../utils/files.js";
 import { DEFAULT_TIMEOUT } from "../types.js";
 import { loadPrompt } from "../utils/prompt.js";
-import type { AgentConfig, GatekeeperResult, EvaluatorResult } from "../types.js";
+import type { AgentConfig, GatekeeperResult, EvalOrchestratorResult, EvaluatorResult } from "../types.js";
 import type { Tri } from "../rules.js";
-import type { EvaluatorDecision } from "../tools/decisions.js";
 import type { IterationRecord } from "../utils/state.js";
 
 export interface TerminatorInput {
-    evalDecision: EvaluatorDecision;
+    evalResult: EvalOrchestratorResult;
     history: IterationRecord[];
 }
 
@@ -66,19 +65,26 @@ export async function runTerminator(
         "No evaluator report found.",
     );
 
-    const structuredSection = input ? [
-        "",
-        "## Structured Evaluation Data",
-        `- **Decision**: ${input.evalDecision.decision}`,
-        `- **Scores**: features=${input.evalDecision.scores.features}, reliability=${input.evalDecision.scores.reliability}, modularity=${input.evalDecision.scores.modularity}`,
-        `- **Remaining work**: ${input.evalDecision.remainingWork.length === 0 ? "none" : input.evalDecision.remainingWork.map(i => `\n  - ${i}`).join("")}`,
-        "",
-        "## Score History",
-        ...input.history.map(h => {
-            const s = h.scores ? `features=${h.scores.features}, reliability=${h.scores.reliability}, modularity=${h.scores.modularity}` : "n/a";
-            return `- Iteration ${h.iteration}: ${h.decision} (${s})`;
-        }),
-    ] : [];
+    const structuredSection = input ? (() => {
+        const lines = [
+            "",
+            "## Structured Evaluation Data",
+            `- **Decision**: ${input.evalResult.decision}`,
+            `- **Overall score**: ${input.evalResult.score}/100`,
+        ];
+        for (const [name, result] of input.evalResult.axes) {
+            lines.push(`- **${name}**: ${result.score}/100 — ${result.feedback || "no issues"}`);
+        }
+        lines.push(
+            "",
+            "## Score History",
+            ...input.history.map(h => {
+                const s = h.scores ? `features=${h.scores.features}, reliability=${h.scores.reliability}, modularity=${h.scores.modularity}` : "n/a";
+                return `- Iteration ${h.iteration}: ${h.decision} (${s})`;
+            }),
+        );
+        return lines;
+    })() : [];
 
     await session.sendAndWait({
         prompt: [

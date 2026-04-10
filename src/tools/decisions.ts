@@ -1,27 +1,6 @@
 import { z } from "zod";
 import { defineTool } from "@github/copilot-sdk";
 
-export interface AxisScores {
-    features: number;
-    reliability: number;
-    modularity: number;
-}
-
-export interface AxisIssues {
-    features: string[];
-    reliability: string[];
-    modularity: string[];
-}
-
-export interface EvaluatorDecision {
-    decision: "approve" | "reject";
-    summary: string;
-    scores: AxisScores;
-    issues: AxisIssues;
-    remainingWork: string[];
-    testsStatus: "pass" | "fail" | "none" | "partial";
-}
-
 // ── Axis Score Tool ─────────────────────────────────────────
 
 export interface AxisResult {

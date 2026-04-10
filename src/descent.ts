@@ -238,22 +238,30 @@ export async function descent(
 
             const record: IterationRecord = {
                 iteration,
-                decision: evalResult.decision === "approve" ? "approve" : "reject",
-                scores: evalResult.scores,
-                summary: evalResult.summary,
+                decision: evalResult.decision,
+                scores: {
+                    features: evalResult.axes.get("features")?.score ?? 0,
+                    reliability: evalResult.axes.get("reliability")?.score ?? 0,
+                    modularity: evalResult.axes.get("modularity")?.score ?? 0,
+                },
+                summary: evalResult.feedback,
             };
 
-            const { features, reliability, modularity } = evalResult.scores;
+            const scoreStr = [...evalResult.axes.entries()]
+                .filter(([n]) => n !== "symbolic")
+                .map(([n, r]) => `${n}=${r.score}`)
+                .join(", ");
+
             if (evalResult.decision === "approve") {
-                log.system(`✅ Evaluator APPROVED: ${evalResult.summary}`);
-                log.system(`   Scores: features=${features}, reliability=${reliability}, modularity=${modularity}`);
-                gitCommitAll(iteration, evalResult.summary);
+                log.system(`✅ Evaluator APPROVED (score=${evalResult.score})`);
+                log.system(`   ${scoreStr}`);
+                gitCommitAll(iteration, evalResult.feedback);
                 baseline = getHeadSha();
             } else {
-                log.system(`❌ Evaluator REJECTED: ${evalResult.summary}`);
-                log.system(`   Scores: features=${features}, reliability=${reliability}, modularity=${modularity}`);
+                log.system(`❌ Evaluator REJECTED (score=${evalResult.score})`);
+                log.system(`   ${scoreStr}`);
                 gitRevertToBaseline(baseline);
-                gitCommitDescendOnly(iteration, evalResult.summary);
+                gitCommitDescendOnly(iteration, evalResult.feedback);
                 baseline = getHeadSha();
             }
 
@@ -316,12 +324,7 @@ export async function descent(
             log.system("🎯 Terminator: Checking convergence...");
 
             // Rule-based pre-check (fast, deterministic)
-            const evalResults = new Map<string, { score: number; feedback: string }>([
-                ["features", { score: evalResult.scores.features, feedback: evalResult.issues.features.join("; ") }],
-                ["reliability", { score: evalResult.scores.reliability, feedback: evalResult.issues.reliability.join("; ") }],
-                ["modularity", { score: evalResult.scores.modularity, feedback: evalResult.issues.modularity.join("; ") }],
-            ]);
-            const ruleResult = evaluateTerminator(evalResults, state.history, iteration);
+            const ruleResult = evaluateTerminator(evalResult.axes, state.history, iteration);
             log.system(`   Rule check: ${ruleResult.result} — ${ruleResult.feedback}`);
 
             if (ruleResult.result === "SUCCESS") {
@@ -334,7 +337,7 @@ export async function descent(
             // Agentic terminator for nuanced cases (CONTINUE from rules = defer to agent)
             const termResult = await withRetry(
                 (cfg) => runTerminator(client, cfg, {
-                    evalDecision: evalResult,
+                    evalResult: evalResult,
                     history: state.history,
                 }),
                 agents.terminator,
