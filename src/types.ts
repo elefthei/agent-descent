@@ -51,3 +51,14 @@ export interface GatekeeperResult {
     result: Tri;
     feedback: string;
 }
+
+// ── Implementor Interface ───────────────────────────────────
+
+export type ImplementorKind = "Research" | "Plan" | "Feature" | "Reliability" | "Refactor";
+
+/** Result from any implementor phase. */
+export interface ImplementorResult {
+    kinds: Set<ImplementorKind>;
+    feedback: string;
+    iterations: number;
+}

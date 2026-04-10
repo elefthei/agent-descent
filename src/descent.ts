@@ -183,11 +183,12 @@ export async function descent(
 
             if (!options?.skipResearch) {
                 log.system("📚 Implementor: Research phase...");
-                await withRetry(
+                const researchResult = await withRetry(
                     (cfg) => runImplementorResearch(client, cfg),
                     agents.implementor,
                     implRetries,
                 );
+                log.system(`   ← research: [${[...researchResult.kinds].join(", ")}] ${researchResult.feedback}`);
 
                 state.phase = "implementor:plan";
                 saveState(state);
@@ -195,22 +196,24 @@ export async function descent(
 
             if (!options?.skipPlan) {
                 log.system("📋 Implementor: Plan phase...");
-                await withRetry(
+                const planResult = await withRetry(
                     (cfg) => runImplementorPlan(client, cfg),
                     agents.implementor,
                     implRetries,
                 );
+                log.system(`   ← plan: [${[...planResult.kinds].join(", ")}] ${planResult.feedback}`);
 
                 state.phase = "implementor:exec";
                 saveState(state);
             }
 
             log.system("🔧 Implementor: Execute phase...");
-            await withRetry(
+            const execResult = await withRetry(
                 (cfg) => runImplementorExec(client, cfg),
                 agents.implementor,
                 implRetries,
             );
+            log.system(`   ← exec: [${[...execResult.kinds].join(", ")}] ${execResult.feedback}`);
 
             // Evaluator: Review + decide (diff against baseline for owned changes only)
             state.phase = "evaluator";

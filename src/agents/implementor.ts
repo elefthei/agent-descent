@@ -4,13 +4,13 @@ import { attachLogger } from "../utils/logger.js";
 import { readFileOrDefault, readDirContents } from "../utils/files.js";
 import { DEFAULT_TIMEOUT } from "../types.js";
 import { loadPrompt } from "../utils/prompt.js";
-
-import type { AgentConfig } from "../types.js";
+import { createImplementorResultTool } from "../tools/decisions.js";
+import type { AgentConfig, ImplementorResult } from "../types.js";
 
 export async function runImplementorResearch(
     client: CopilotClient,
     ctx: AgentConfig,
-): Promise<void> {
+): Promise<ImplementorResult> {
     const goalFile = readFileOrDefault(
         ".descend/implementor/goal.md",
         "No goal file found.",
@@ -46,12 +46,13 @@ export async function runImplementorResearch(
 
     await session.disconnect();
     await client.deleteSession(session.sessionId);
+    return { kinds: new Set(["Research"]), feedback: "Research phase completed", iterations: 1 };
 }
 
 export async function runImplementorPlan(
     client: CopilotClient,
     ctx: AgentConfig,
-): Promise<void> {
+): Promise<ImplementorResult> {
     const goalFile = readFileOrDefault(
         ".descend/implementor/goal.md",
         "No goal file found.",
@@ -90,23 +91,26 @@ export async function runImplementorPlan(
 
     await session.disconnect();
     await client.deleteSession(session.sessionId);
+    return { kinds: new Set(["Plan"]), feedback: "Plan phase completed", iterations: 1 };
 }
 
 export async function runImplementorExec(
     client: CopilotClient,
     ctx: AgentConfig,
-): Promise<void> {
+): Promise<ImplementorResult> {
     const goalFile = readFileOrDefault(
         ".descend/implementor/goal.md",
         "No goal file found.",
     );
     const planNotes = readDirContents(".descend/plan");
+    const { tool, getResult } = createImplementorResultTool();
 
     const session = await client.createSession({
         workingDirectory: process.cwd(),
         model: ctx.model,
         reasoningEffort: ctx.reasoningEffort ?? "high",
         systemMessage: { mode: "replace", content: loadPrompt("implementor-exec", { CWD: process.cwd() }) },
+        tools: [tool],
         onPermissionRequest: approveAll,
         infiniteSessions: { enabled: false },
         streaming: true,
@@ -123,9 +127,17 @@ export async function runImplementorExec(
             "",
             "Execute the plan. Make code changes.",
             "Write an execution log to .descend/implementor/report.md when done.",
+            "Then call submit_implementor_result with what you accomplished.",
         ].join("\n"),
     }, ctx.timeout ?? DEFAULT_TIMEOUT);
 
     await session.disconnect();
     await client.deleteSession(session.sessionId);
+
+    const result = getResult();
+    if (result) {
+        return { ...result, iterations: 1 };
+    }
+    // Fallback if agent didn't call the tool
+    return { kinds: new Set(["Feature"]), feedback: "Execution completed (no explicit result submitted)", iterations: 1 };
 }

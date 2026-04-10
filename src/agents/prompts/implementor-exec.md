@@ -62,3 +62,6 @@ Goal and plan are in context — do NOT re-read from disk.
 - All plan steps attempted or admitted with documented reason
 - Report written with all sections populated
 - No debug code or TODO markers in changed files
+- Call `submit_implementor_result` with:
+  - `kinds`: what you targeted — any of: Research, Plan, Feature, Reliability, Refactor (can be multiple)
+  - `feedback`: 1-2 sentence summary of what was accomplished

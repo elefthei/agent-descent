@@ -87,3 +87,36 @@ export function createSymbolicReportTool() {
 
     return { tool, getResult: () => result };
 }
+
+// ── Implementor Result Tool ─────────────────────────────────
+
+import type { ImplementorKind } from "../types.js";
+
+export function createImplementorResultTool() {
+    const box = { result: null as { kinds: string[]; feedback: string } | null };
+
+    const tool = defineTool("submit_implementor_result", {
+        description: "Submit a summary of what this implementation phase accomplished.",
+        parameters: z.object({
+            kinds: z
+                .array(z.enum(["Research", "Plan", "Feature", "Reliability", "Refactor"]))
+                .describe("What this iteration targeted: Research, Plan, Feature, Reliability, Refactor (can be multiple)"),
+            feedback: z
+                .string()
+                .describe("Brief summary of what was accomplished"),
+        }),
+        skipPermission: true,
+        handler: async (params: { kinds: string[]; feedback: string }) => {
+            box.result = params;
+            return `Result recorded: ${params.kinds.join(", ")}`;
+        },
+    });
+
+    return {
+        tool,
+        getResult: () => box.result ? {
+            kinds: new Set(box.result.kinds as ImplementorKind[]),
+            feedback: box.result.feedback,
+        } : null,
+    };
+}
