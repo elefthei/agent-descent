@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync, renameSync, existsSync } from "fs";
+import { readFileSync, writeFileSync, mkdirSync, cpSync, rmSync, existsSync } from "fs";
 
 const REQUIRED_FILES = [
     ".descend/state.json",
@@ -54,12 +54,13 @@ export function archiveIteration(iteration: number): void {
     const archiveDir = `.descend/history/iteration-${iteration}`;
     mkdirSync(archiveDir, { recursive: true });
 
-    // Move current research/ and plan/ into archive
+    // Move current research/ and plan/ into archive (copy+delete for Windows compatibility)
     for (const dir of ["research", "plan"]) {
         const src = `.descend/${dir}`;
         const dst = `${archiveDir}/${dir}`;
         if (existsSync(src)) {
-            renameSync(src, dst);
+            cpSync(src, dst, { recursive: true });
+            rmSync(src, { recursive: true, force: true });
             mkdirSync(src, { recursive: true });
         }
     }
