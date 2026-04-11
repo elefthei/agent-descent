@@ -107,10 +107,14 @@ async function main() {
     }
 
     if (args.fresh) {
-        const { rmSync, existsSync } = await import("fs");
-        if (existsSync(".descend")) {
-            rmSync(".descend", { recursive: true, force: true });
-            log.system("🗑️  Cleared .descend/ (--fresh)");
+        const { loadState, saveState } = await import("./utils/state.js");
+        const existing = loadState();
+        if (existing) {
+            existing.iteration = 0;
+            existing.phase = "init";
+            existing.baselineCommit = (await import("./utils/git.js")).getHeadSha();
+            saveState(existing);
+            log.system(`🔄 Fresh start (--fresh) — reset iteration counter, kept ${existing.history.length} history records`);
         }
     }
 
