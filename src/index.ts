@@ -21,6 +21,7 @@ export { Gate, type Tri, type Rule } from "./rules.js";
 interface CliArgs {
     goalPath: string;
     logFile: string | null;
+    fresh: boolean;
     maxIterations: number;
     maxReject: number;
     timeout: number;
@@ -33,6 +34,7 @@ function parseArgs(): CliArgs {
     const args = process.argv.slice(2);
     let goalPath = "";
     let logFile: string | null = null;
+    let fresh = false;
     let maxIterations = 10;
     let maxReject = 3;
     let timeout = 60;
@@ -42,7 +44,9 @@ function parseArgs(): CliArgs {
 
     for (let i = 0; i < args.length; i++) {
         const arg = args[i]!;
-        if (arg === "--max-iterations" && args[i + 1]) {
+        if (arg === "--fresh") {
+            fresh = true;
+        } else if (arg === "--max-iterations" && args[i + 1]) {
             maxIterations = parseInt(args[++i]!, 10);
         } else if (arg === "--max-reject" && args[i + 1]) {
             maxReject = parseInt(args[++i]!, 10);
@@ -63,7 +67,7 @@ function parseArgs(): CliArgs {
 
     if (!goalPath) {
         console.error(
-            "Usage: agent-descent <goal.md> [--max-iterations N] [--max-reject N] [--timeout MINUTES] [--log FILE] [--implementor-model M] [--evaluator-model M] [--terminator-model M]",
+            "Usage: agent-descent <goal.md> [--fresh] [--max-iterations N] [--max-reject N] [--timeout MINUTES] [--log FILE] [--implementor-model M] [--evaluator-model M] [--terminator-model M]",
         );
         console.error(`\nSupported models: ${[...SUPPORTED_MODELS].join(", ")}`);
         process.exit(1);
@@ -84,6 +88,7 @@ function parseArgs(): CliArgs {
     return {
         goalPath: resolve(goalPath),
         logFile,
+        fresh,
         maxIterations,
         maxReject,
         timeout,
@@ -99,6 +104,14 @@ async function main() {
 
     if (args.logFile) {
         setLogFile(resolve(args.logFile));
+    }
+
+    if (args.fresh) {
+        const { rmSync, existsSync } = await import("fs");
+        if (existsSync(".descend")) {
+            rmSync(".descend", { recursive: true, force: true });
+            log.system("🗑️  Cleared .descend/ (--fresh)");
+        }
     }
 
     log.system("🚀 Agent-Descent starting...");
