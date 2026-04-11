@@ -10,18 +10,18 @@ import { runEvaluator, runRadicalPlan, evaluateTerminator } from "./agents/evalu
 import { runTerminator } from "./agents/terminator.js";
 import { runReliabilityCampaign } from "./agents/campaigns/reliability.js";
 import { runModularityCampaign } from "./agents/campaigns/modularity.js";
-import { gitCommitAll, gitRevertToBaseline, gitCommitDescendOnly, getHeadSha, getGitDiff } from "./utils/git.js";
+import { gitCommitAll, gitRevertToBaseline, gitCommitDescendOnly, getHeadSha } from "./utils/git.js";
 import { log } from "./utils/logger.js";
 import { saveState, loadState, archiveIteration, detectStagnation, consecutiveRejects, isValidState, type DescentState, type IterationRecord } from "./utils/state.js";
 import { readFileOrDefault } from "./utils/files.js";
 import { readFileSync } from "fs";
 import { DEFAULT_MODEL, getNextModel, isRateLimitError } from "./models.js";
 import { checkPreviousError } from "./utils/check-error.js";
+import type { AgentConfig, EvalOrchestratorResult } from "./types.js";
 
 // ── Public types ────────────────────────────────────────────
 
 export type { AgentConfig } from "./types.js";
-import type { AgentConfig } from "./types.js";
 
 export interface Agents {
     implementor: AgentConfig;
@@ -53,11 +53,6 @@ export interface DescentResult {
 
 // ── setup ───────────────────────────────────────────────────
 
-/**
- * Initialize or resume the descent loop.
- * If .descend/ has valid state (state.json + 3 goal files), skip setup and resume.
- * Otherwise, run the setup agent to project goal.md into per-agent goal files.
- */
 export async function setup(
     client: CopilotClient,
     goalPath: string,
@@ -83,331 +78,306 @@ export async function setup(
 
     if (isValidState()) {
         const state = loadState();
-        const prevIterations = state?.history.length ?? 0;
-        log.system(`♻️  Resuming — .descend/ has valid state (${prevIterations} previous iteration(s))`);
+        log.system(`♻️  Resuming — .descend/ has valid state (${state?.history.length ?? 0} previous iteration(s))`);
         return agents;
     }
 
-    // Fresh start — setup agent projects goal.md
     const config: AgentConfig = {
         model: options?.implementorModel ?? DEFAULT_MODEL,
         reasoningEffort: "high",
         timeout: options?.timeout,
     };
     await runSetup(client, config, goalPath);
-
     return agents;
+}
+
+// ── Phase helpers ───────────────────────────────────────────
+
+interface LoopContext {
+    client: CopilotClient;
+    agents: Agents;
+    state: DescentState;
+    options: DescentOptions;
+    maxRetries: number;
+}
+
+function resumeOrInitState(): { state: DescentState; startIteration: number; baseline: string } {
+    const existingState = loadState();
+
+    if (!existingState) {
+        const baseline = getHeadSha();
+        return {
+            state: { iteration: 0, baselineCommit: baseline, phase: "init", history: [] },
+            startIteration: 1,
+            baseline,
+        };
+    }
+
+    const baseline = existingState.baselineCommit;
+
+    if (existingState.phase === "done" || existingState.phase === "init") {
+        return { state: existingState, startIteration: existingState.history.length + 1, baseline };
+    }
+
+    // Interrupted mid-iteration — revert and redo
+    log.system(`⚠️ Previous run interrupted during phase: ${existingState.phase}`);
+    log.system(`   Reverting to baseline and restarting iteration ${existingState.iteration}`);
+    gitRevertToBaseline(baseline);
+
+    if (existingState.history.length > 0 &&
+        existingState.history[existingState.history.length - 1]!.iteration === existingState.iteration) {
+        existingState.history.pop();
+    }
+
+    return {
+        state: existingState,
+        startIteration: existingState.iteration > 0 ? existingState.iteration : 1,
+        baseline,
+    };
+}
+
+async function runImplementorPhase(ctx: LoopContext): Promise<void> {
+    const implRetries = ctx.agents.implementor.retryBudget ?? ctx.maxRetries;
+
+    // Check predecessor error
+    if (await checkPreviousError(ctx.client, ctx.agents.evaluator, ".descend/evaluator/report.md")) {
+        log.system("⚠️ Evaluator report contains system error — re-running evaluator");
+        await withRetry((cfg) => runEvaluator(ctx.client, cfg, ctx.state.baselineCommit), ctx.agents.evaluator, ctx.maxRetries);
+    }
+
+    if (!ctx.options.skipResearch) {
+        log.system("📚 Implementor: Research phase...");
+        ctx.state.phase = "implementor:research";
+        saveState(ctx.state);
+        const r = await withRetry((cfg) => runImplementorResearch(ctx.client, cfg), ctx.agents.implementor, implRetries);
+        log.system(`   ← research: [${[...r.kinds].join(", ")}] ${r.feedback}`);
+    }
+
+    if (!ctx.options.skipPlan) {
+        log.system("📋 Implementor: Plan phase...");
+        ctx.state.phase = "implementor:plan";
+        saveState(ctx.state);
+        const r = await withRetry((cfg) => runImplementorPlan(ctx.client, cfg), ctx.agents.implementor, implRetries);
+        log.system(`   ← plan: [${[...r.kinds].join(", ")}] ${r.feedback}`);
+    }
+
+    log.system("🔧 Implementor: Execute phase...");
+    ctx.state.phase = "implementor:exec";
+    saveState(ctx.state);
+
+    // Check predecessor error
+    if (await checkPreviousError(ctx.client, ctx.agents.implementor, ".descend/implementor/report.md")) {
+        log.system("⚠️ Implementor report contains system error — re-running implementor:exec");
+        await withRetry((cfg) => runImplementorExec(ctx.client, cfg), ctx.agents.implementor, implRetries);
+    }
+
+    const r = await withRetry((cfg) => runImplementorExec(ctx.client, cfg), ctx.agents.implementor, implRetries);
+    log.system(`   ← exec: [${[...r.kinds].join(", ")}] ${r.feedback}`);
+}
+
+async function runEvaluatorPhase(
+    ctx: LoopContext,
+    baseline: string,
+): Promise<{ evalResult: EvalOrchestratorResult; baseline: string }> {
+    ctx.state.phase = "evaluator";
+    saveState(ctx.state);
+
+    log.system("🔍 Evaluator: Reviewing changes...");
+    const evalResult = await withRetry(
+        (cfg) => runEvaluator(ctx.client, cfg, baseline),
+        ctx.agents.evaluator,
+        ctx.agents.evaluator.retryBudget ?? ctx.maxRetries,
+    );
+
+    const scoreStr = [...evalResult.axes.entries()]
+        .filter(([n]) => n !== "symbolic")
+        .map(([n, r]) => `${n}=${r.score}`)
+        .join(", ");
+
+    if (evalResult.decision === "approve") {
+        log.system(`✅ Evaluator APPROVED (score=${evalResult.score})`);
+        log.system(`   ${scoreStr}`);
+        gitCommitAll(ctx.state.iteration, evalResult.feedback);
+        baseline = getHeadSha();
+    } else {
+        log.system(`❌ Evaluator REJECTED (score=${evalResult.score})`);
+        log.system(`   ${scoreStr}`);
+        gitRevertToBaseline(baseline);
+        gitCommitDescendOnly(ctx.state.iteration, evalResult.feedback);
+        baseline = getHeadSha();
+    }
+
+    ctx.state.baselineCommit = baseline;
+    ctx.state.history.push({
+        iteration: ctx.state.iteration,
+        decision: evalResult.decision,
+        scores: {
+            features: evalResult.axes.get("features")?.score ?? 0,
+            reliability: evalResult.axes.get("reliability")?.score ?? 0,
+            modularity: evalResult.axes.get("modularity")?.score ?? 0,
+        },
+        summary: evalResult.feedback,
+    });
+    saveState(ctx.state);
+
+    const warning = detectStagnation(ctx.state.history);
+    if (warning) log.system(`⚠️ Stagnation warning: ${warning}`);
+
+    return { evalResult, baseline };
+}
+
+async function runEscalation(ctx: LoopContext): Promise<void> {
+    const rejectStreak = consecutiveRejects(ctx.state.history);
+    if (rejectStreak < (ctx.options.maxReject ?? 3)) return;
+
+    log.system(`\n🚨 ${rejectStreak} consecutive rejections — escalating...`);
+
+    // Step 1: Reliability campaign
+    log.system("   Step 1/3: 🛡️ Reliability campaign...");
+    ctx.state.phase = "campaign:reliability";
+    saveState(ctx.state);
+    const relResult = await withRetry((cfg) => runReliabilityCampaign(ctx.client, cfg), ctx.agents.implementor, ctx.maxRetries);
+    log.system(`   ← [${[...relResult.kinds].join(", ")}] ${relResult.feedback}`);
+
+    // Step 2: Modularity campaign
+    log.system("   Step 2/3: 🏗️ Modularity campaign...");
+    ctx.state.phase = "campaign:modularity";
+    saveState(ctx.state);
+    const modResult = await withRetry((cfg) => runModularityCampaign(ctx.client, cfg), ctx.agents.implementor, ctx.maxRetries);
+    log.system(`   ← [${[...modResult.kinds].join(", ")}] ${modResult.feedback}`);
+
+    // Step 3: Radical plan
+    if (ctx.options.goalPath) {
+        log.system("   Step 3/3: 🚨 Radical plan...");
+        ctx.state.phase = "evaluator:radical";
+        saveState(ctx.state);
+
+        const failureReports = ctx.state.history.slice(-rejectStreak).map((rec) => {
+            const archived = readFileOrDefault(`.descend/history/iteration-${rec.iteration}/evaluator/report.md`, "");
+            return archived || readFileOrDefault(".descend/evaluator/report.md", "");
+        }).filter(Boolean);
+
+        const goalContent = readFileSync(ctx.options.goalPath, "utf-8");
+        await withRetry((cfg) => runRadicalPlan(ctx.client, cfg, goalContent, failureReports), ctx.agents.evaluator, ctx.maxRetries);
+        log.system("   📋 RADICAL PLAN written");
+    }
+}
+
+async function runTerminatorPhase(
+    ctx: LoopContext,
+    evalResult: EvalOrchestratorResult,
+    iteration: number,
+): Promise<DescentResult | null> {
+    ctx.state.phase = "terminator";
+    saveState(ctx.state);
+
+    // Check predecessor error
+    if (await checkPreviousError(ctx.client, ctx.agents.evaluator, ".descend/evaluator/report.md")) {
+        log.system("⚠️ Evaluator report contains system error — re-running evaluator");
+        const retryEval = await withRetry(
+            (cfg) => runEvaluator(ctx.client, cfg, ctx.state.baselineCommit),
+            ctx.agents.evaluator, ctx.maxRetries,
+        );
+        Object.assign(evalResult, retryEval);
+    }
+
+    log.system("🎯 Terminator: Checking convergence...");
+
+    // Rule-based pre-check (fast, deterministic)
+    const ruleResult = evaluateTerminator(evalResult.axes, ctx.state.history, iteration);
+    log.system(`   Rule check: ${ruleResult.result} — ${ruleResult.feedback}`);
+
+    if (ruleResult.result === "SUCCESS") {
+        ctx.state.phase = "done";
+        saveState(ctx.state);
+        log.system(`\n🏁 Converged after ${iteration} iteration(s): ${ruleResult.feedback}`);
+        return { iterations: iteration, converged: true, reason: ruleResult.feedback };
+    }
+
+    // Agentic terminator for nuanced cases
+    const termResult = await withRetry(
+        (cfg) => runTerminator(ctx.client, cfg, { evalResult, history: ctx.state.history }),
+        ctx.agents.terminator,
+        ctx.agents.terminator.retryBudget ?? ctx.maxRetries,
+    );
+
+    if (termResult.result === "SUCCESS" || termResult.result === "FAILURE") {
+        ctx.state.phase = "done";
+        saveState(ctx.state);
+        log.system(`\n🏁 ${termResult.result} after ${iteration} iteration(s): ${termResult.feedback}`);
+        return { iterations: iteration, converged: termResult.result === "SUCCESS", reason: termResult.feedback };
+    }
+
+    log.system(`🔄 Continuing: ${termResult.feedback}`);
+    return null;
+}
+
+function handleIterationError(state: DescentState, baseline: string, iteration: number, message: string): string {
+    log.system(`⚠️ Iteration ${iteration} failed after retries: ${message}`);
+    gitRevertToBaseline(baseline);
+    writeFileSync(".descend/evaluator/report.md", [
+        "# Error Report",
+        "",
+        `Iteration ${iteration} failed: ${message}`,
+        "",
+        "The implementor should retry the previous approach or try a different strategy.",
+    ].join("\n"));
+    gitCommitDescendOnly(iteration, `error: ${message}`);
+
+    const newBaseline = getHeadSha();
+    state.baselineCommit = newBaseline;
+    state.history.push({ iteration, decision: "error", summary: message });
+    saveState(state);
+
+    const warning = detectStagnation(state.history);
+    if (warning) log.system(`⚠️ Stagnation warning: ${warning}`);
+
+    return newBaseline;
 }
 
 // ── descent ─────────────────────────────────────────────────
 
-/**
- * Run the agent descent loop: Implementor → Evaluator → Terminator → repeat.
- * Returns when the terminator says STOP or maxIterations is reached.
- */
 export async function descent(
     client: CopilotClient,
     agents: Agents,
     options?: DescentOptions,
 ): Promise<DescentResult> {
-    const maxIterations = options?.maxIterations ?? 10;
     const maxRetries = options?.maxRetries ?? 2;
-    const maxReject = options?.maxReject ?? 3;
+    const maxIterations = options?.maxIterations ?? 10;
+    const opts = options ?? {};
 
-    // Resume from existing state or start fresh
-    const existingState = loadState();
-    let startIteration: number;
-    let baseline: string;
-
-    if (existingState) {
-        baseline = existingState.baselineCommit;
-        const lastPhase = existingState.phase;
-
-        if (lastPhase === "done" || lastPhase === "init") {
-            // Clean boundary — start next iteration
-            startIteration = existingState.history.length + 1;
-        } else {
-            // Interrupted mid-iteration — revert and redo this iteration
-            log.system(`⚠️ Previous run interrupted during phase: ${lastPhase}`);
-            log.system(`   Reverting to baseline and restarting iteration ${existingState.iteration}`);
-            gitRevertToBaseline(baseline);
-            // Remove partial iteration record if it was added
-            if (existingState.history.length > 0 &&
-                existingState.history[existingState.history.length - 1]!.iteration === existingState.iteration) {
-                existingState.history.pop();
-            }
-            startIteration = existingState.iteration > 0 ? existingState.iteration : 1;
-        }
-    } else {
-        baseline = getHeadSha();
-        startIteration = 1;
-    }
-
-    const state: DescentState = existingState ?? {
-        iteration: 0,
-        baselineCommit: baseline,
-        phase: "init",
-        history: [],
-    };
+    const { state, startIteration, baseline: initialBaseline } = resumeOrInitState();
+    let baseline = initialBaseline;
     saveState(state);
 
     if (startIteration > 1) {
         log.system(`♻️  Continuing from iteration ${startIteration} (${state.history.length} previous)`);
     }
 
+    const ctx: LoopContext = { client, agents, state, options: opts, maxRetries };
+
     for (let iteration = startIteration; iteration <= maxIterations; iteration++) {
         log.system(`\n${"═".repeat(60)}`);
         log.system(`  Iteration ${iteration} / ${maxIterations}`);
         log.system(`${"═".repeat(60)}\n`);
 
-        // Archive previous iteration's artifacts to prevent prompt contamination
-        if (iteration > 1) {
-            archiveIteration(iteration - 1);
-        }
+        if (iteration > 1) archiveIteration(iteration - 1);
 
         state.iteration = iteration;
         state.phase = "implementor:research";
         saveState(state);
 
         try {
-            // Implementor: Research → Plan → Execute
-            const implRetries = agents.implementor.retryBudget ?? maxRetries;
+            await runImplementorPhase(ctx);
+            const evalPhase = await runEvaluatorPhase(ctx, baseline);
+            baseline = evalPhase.baseline;
 
-            // Check if evaluator's report from previous iteration has a system error
-            if (await checkPreviousError(client, agents.evaluator, ".descend/evaluator/report.md")) {
-                log.system("⚠️ Evaluator report contains system error — re-running evaluator");
-                await withRetry(
-                    (cfg) => runEvaluator(client, cfg, baseline),
-                    agents.evaluator,
-                    agents.evaluator.retryBudget ?? maxRetries,
-                );
-            }
+            await runEscalation(ctx);
 
-            if (!options?.skipResearch) {
-                log.system("📚 Implementor: Research phase...");
-                const researchResult = await withRetry(
-                    (cfg) => runImplementorResearch(client, cfg),
-                    agents.implementor,
-                    implRetries,
-                );
-                log.system(`   ← research: [${[...researchResult.kinds].join(", ")}] ${researchResult.feedback}`);
-
-                state.phase = "implementor:plan";
-                saveState(state);
-            }
-
-            if (!options?.skipPlan) {
-                log.system("📋 Implementor: Plan phase...");
-                const planResult = await withRetry(
-                    (cfg) => runImplementorPlan(client, cfg),
-                    agents.implementor,
-                    implRetries,
-                );
-                log.system(`   ← plan: [${[...planResult.kinds].join(", ")}] ${planResult.feedback}`);
-
-                state.phase = "implementor:exec";
-                saveState(state);
-            }
-
-            log.system("🔧 Implementor: Execute phase...");
-            const execResult = await withRetry(
-                (cfg) => runImplementorExec(client, cfg),
-                agents.implementor,
-                implRetries,
-            );
-            log.system(`   ← exec: [${[...execResult.kinds].join(", ")}] ${execResult.feedback}`);
-
-            // Evaluator: Review + decide (diff against baseline for owned changes only)
-            state.phase = "evaluator";
-            saveState(state);
-
-            // Check if implementor's report has a system error
-            if (await checkPreviousError(client, agents.implementor, ".descend/implementor/report.md")) {
-                log.system("⚠️ Implementor report contains system error — re-running implementor:exec");
-                await withRetry(
-                    (cfg) => runImplementorExec(client, cfg),
-                    agents.implementor,
-                    implRetries,
-                );
-            }
-
-            log.system("🔍 Evaluator: Reviewing changes...");
-            const evalResult = await withRetry(
-                (cfg) => runEvaluator(client, cfg, baseline),
-                agents.evaluator,
-                agents.evaluator.retryBudget ?? maxRetries,
-            );
-
-            const record: IterationRecord = {
-                iteration,
-                decision: evalResult.decision,
-                scores: {
-                    features: evalResult.axes.get("features")?.score ?? 0,
-                    reliability: evalResult.axes.get("reliability")?.score ?? 0,
-                    modularity: evalResult.axes.get("modularity")?.score ?? 0,
-                },
-                summary: evalResult.feedback,
-            };
-
-            const scoreStr = [...evalResult.axes.entries()]
-                .filter(([n]) => n !== "symbolic")
-                .map(([n, r]) => `${n}=${r.score}`)
-                .join(", ");
-
-            if (evalResult.decision === "approve") {
-                log.system(`✅ Evaluator APPROVED (score=${evalResult.score})`);
-                log.system(`   ${scoreStr}`);
-                gitCommitAll(iteration, evalResult.feedback);
-                baseline = getHeadSha();
-            } else {
-                log.system(`❌ Evaluator REJECTED (score=${evalResult.score})`);
-                log.system(`   ${scoreStr}`);
-                gitRevertToBaseline(baseline);
-                gitCommitDescendOnly(iteration, evalResult.feedback);
-                baseline = getHeadSha();
-            }
-
-            state.baselineCommit = baseline;
-            state.history.push(record);
-            saveState(state);
-
-            // Check for stagnation patterns
-            const warning = detectStagnation(state.history);
-            if (warning) {
-                log.system(`⚠️ Stagnation warning: ${warning}`);
-            }
-
-            // RADICAL PLAN ESCALATION: after N consecutive rejections
-            // Step 1: Reliability campaign → Step 2: Modularity campaign → Step 3: Radical plan
-            const rejectStreak = consecutiveRejects(state.history);
-            if (rejectStreak >= maxReject) {
-                log.system(`\n🚨 ${rejectStreak} consecutive rejections — escalating...`);
-
-                // Step 1: Reliability campaign
-                log.system("   Step 1/3: 🛡️ Reliability campaign (tests/proofs)...");
-                state.phase = "campaign:reliability";
-                saveState(state);
-                const relResult = await withRetry(
-                    (cfg) => runReliabilityCampaign(client, cfg),
-                    agents.implementor,
-                    agents.implementor.retryBudget ?? maxRetries,
-                );
-                log.system(`   ← [${[...relResult.kinds].join(", ")}] ${relResult.feedback}`);
-
-                // Step 2: Modularity campaign
-                log.system("   Step 2/3: 🏗️ Modularity campaign (refactoring)...");
-                state.phase = "campaign:modularity";
-                saveState(state);
-                const modResult = await withRetry(
-                    (cfg) => runModularityCampaign(client, cfg),
-                    agents.implementor,
-                    agents.implementor.retryBudget ?? maxRetries,
-                );
-                log.system(`   ← [${[...modResult.kinds].join(", ")}] ${modResult.feedback}`);
-
-                // Step 3: Radical plan (rethink from goal.md + failure history)
-                if (options?.goalPath) {
-                    log.system("   Step 3/3: 🚨 Radical plan (rethink from goal.md)...");
-                    state.phase = "evaluator:radical";
-                    saveState(state);
-
-                    const failureReports: string[] = [];
-                    const recentRejects = state.history.slice(-rejectStreak);
-                    for (const rec of recentRejects) {
-                        const archived = readFileOrDefault(
-                            `.descend/history/iteration-${rec.iteration}/evaluator/report.md`,
-                            "",
-                        );
-                        const report = archived || readFileOrDefault(".descend/evaluator/report.md", "");
-                        if (report) failureReports.push(report);
-                    }
-
-                    const goalContent = readFileSync(options.goalPath, "utf-8");
-                    await withRetry(
-                        (cfg) => runRadicalPlan(client, cfg, goalContent, failureReports),
-                        agents.evaluator,
-                        agents.evaluator.retryBudget ?? maxRetries,
-                    );
-                    log.system("   📋 RADICAL PLAN written to .descend/evaluator/report.md");
-                }
-            }
-
-            // Terminator: Continue or stop?
-            state.phase = "terminator";
-            saveState(state);
-
-            // Check if evaluator's report has a system error
-            if (await checkPreviousError(client, agents.evaluator, ".descend/evaluator/report.md")) {
-                log.system("⚠️ Evaluator report contains system error — re-running evaluator");
-                const retryEval = await withRetry(
-                    (cfg) => runEvaluator(client, cfg, baseline),
-                    agents.evaluator,
-                    agents.evaluator.retryBudget ?? maxRetries,
-                );
-                // Update evalResult for the terminator
-                Object.assign(evalResult, retryEval);
-            }
-
-            log.system("🎯 Terminator: Checking convergence...");
-
-            // Rule-based pre-check (fast, deterministic)
-            const ruleResult = evaluateTerminator(evalResult.axes, state.history, iteration);
-            log.system(`   Rule check: ${ruleResult.result} — ${ruleResult.feedback}`);
-
-            if (ruleResult.result === "SUCCESS") {
-                state.phase = "done";
-                saveState(state);
-                log.system(`\n🏁 Converged after ${iteration} iteration(s): ${ruleResult.feedback}`);
-                return { iterations: iteration, converged: true, reason: ruleResult.feedback };
-            }
-
-            // Agentic terminator for nuanced cases (CONTINUE from rules = defer to agent)
-            const termResult = await withRetry(
-                (cfg) => runTerminator(client, cfg, {
-                    evalResult: evalResult,
-                    history: state.history,
-                }),
-                agents.terminator,
-                agents.terminator.retryBudget ?? maxRetries,
-            );
-
-            if (termResult.result === "SUCCESS" || termResult.result === "FAILURE") {
-                state.phase = "done";
-                saveState(state);
-                log.system(
-                    `\n🏁 ${termResult.result} after ${iteration} iteration(s): ${termResult.feedback}`,
-                );
-                return { iterations: iteration, converged: termResult.result === "SUCCESS", reason: termResult.feedback };
-            }
-
-            log.system(`🔄 Continuing: ${termResult.feedback}`);
+            const result = await runTerminatorPhase(ctx, evalPhase.evalResult, iteration);
+            if (result) return result;
         } catch (err) {
-            const message = (err as Error).message;
-            log.system(
-                `⚠️ Iteration ${iteration} failed after retries: ${message}`,
-            );
-            gitRevertToBaseline(baseline);
-            writeFileSync(
-                ".descend/evaluator/report.md",
-                [
-                    "# Error Report",
-                    "",
-                    `Iteration ${iteration} failed: ${message}`,
-                    "",
-                    "The implementor should retry the previous approach or try a different strategy.",
-                ].join("\n"),
-            );
-            gitCommitDescendOnly(iteration, `error: ${message}`);
-            baseline = getHeadSha();
-
-            state.baselineCommit = baseline;
-            state.history.push({ iteration, decision: "error", summary: message });
-            saveState(state);
-
-            const warning = detectStagnation(state.history);
-            if (warning) {
-                log.system(`⚠️ Stagnation warning: ${warning}`);
-            }
+            baseline = handleIterationError(state, baseline, iteration, (err as Error).message);
         }
     }
 
@@ -419,7 +389,7 @@ export async function descent(
 
 // ── internal ────────────────────────────────────────────────
 
-const RETRY_BACKOFF_MS = 30_000; // 30s between retries for API recovery
+const RETRY_BACKOFF_MS = 30_000;
 
 function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -446,7 +416,6 @@ async function withRetry<T>(fn: (config: AgentConfig) => Promise<T>, config: Age
             const friendly = formatError(err as Error);
             log.system(`⚠️ Attempt ${attempt + 1} failed: ${friendly}`);
 
-            // On rate-limit errors, try falling back to the next model
             if (isRateLimitError(err as Error)) {
                 const next = getNextModel(currentModel);
                 if (next) {
