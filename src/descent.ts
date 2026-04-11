@@ -116,7 +116,9 @@ function resumeOrInitState(): { state: DescentState; startIteration: number; bas
     const baseline = existingState.baselineCommit;
 
     if (existingState.phase === "done" || existingState.phase === "init") {
-        return { state: existingState, startIteration: existingState.history.length + 1, baseline };
+        // iteration=0 means fresh reset — start from 1 regardless of history size
+        const start = existingState.iteration === 0 ? 1 : existingState.history.length + 1;
+        return { state: existingState, startIteration: start, baseline };
     }
 
     // Interrupted mid-iteration — revert and redo
