@@ -12,7 +12,7 @@ import { runReliabilityCampaign } from "./agents/campaigns/reliability.js";
 import { runModularityCampaign } from "./agents/campaigns/modularity.js";
 import { gitCommitAll, gitRevertToBaseline, gitCommitDescendOnly, getHeadSha, getGitDiff } from "./utils/git.js";
 import { log } from "./utils/logger.js";
-import { saveState, loadState, archiveIteration, detectStagnation, consecutiveRejects, axisDeclining, isValidState, type DescentState, type IterationRecord } from "./utils/state.js";
+import { saveState, loadState, archiveIteration, detectStagnation, consecutiveRejects, isValidState, type DescentState, type IterationRecord } from "./utils/state.js";
 import { readFileOrDefault } from "./utils/files.js";
 import { readFileSync } from "fs";
 import { DEFAULT_MODEL, getNextModel, isRateLimitError } from "./models.js";
@@ -277,62 +277,59 @@ export async function descent(
                 log.system(`⚠️ Stagnation warning: ${warning}`);
             }
 
-            // Reliability campaign: if reliability score declining 3+ iterations
-            if (axisDeclining(state.history, "reliability", 3)) {
-                log.system("\n🛡️ Reliability declining 3+ iterations — launching reliability campaign...");
+            // RADICAL PLAN ESCALATION: after N consecutive rejections
+            // Step 1: Reliability campaign → Step 2: Modularity campaign → Step 3: Radical plan
+            const rejectStreak = consecutiveRejects(state.history);
+            if (rejectStreak >= maxReject) {
+                log.system(`\n🚨 ${rejectStreak} consecutive rejections — escalating...`);
+
+                // Step 1: Reliability campaign
+                log.system("   Step 1/3: 🛡️ Reliability campaign (tests/proofs)...");
                 state.phase = "campaign:reliability";
                 saveState(state);
-
-                const campaignResult = await withRetry(
+                const relResult = await withRetry(
                     (cfg) => runReliabilityCampaign(client, cfg),
                     agents.implementor,
                     agents.implementor.retryBudget ?? maxRetries,
                 );
-                log.system(`   ← campaign: [${[...campaignResult.kinds].join(", ")}] ${campaignResult.feedback}`);
-            }
+                log.system(`   ← [${[...relResult.kinds].join(", ")}] ${relResult.feedback}`);
 
-            // Modularity campaign: if modularity score declining 3+ iterations
-            if (axisDeclining(state.history, "modularity", 3)) {
-                log.system("\n🏗️ Modularity declining 3+ iterations — launching refactoring campaign...");
+                // Step 2: Modularity campaign
+                log.system("   Step 2/3: 🏗️ Modularity campaign (refactoring)...");
                 state.phase = "campaign:modularity";
                 saveState(state);
-
-                const campaignResult = await withRetry(
+                const modResult = await withRetry(
                     (cfg) => runModularityCampaign(client, cfg),
                     agents.implementor,
                     agents.implementor.retryBudget ?? maxRetries,
                 );
-                log.system(`   ← campaign: [${[...campaignResult.kinds].join(", ")}] ${campaignResult.feedback}`);
-            }
+                log.system(`   ← [${[...modResult.kinds].join(", ")}] ${modResult.feedback}`);
 
-            // RADICAL PLAN: if too many consecutive rejections, evaluator does deep planning
-            const rejectStreak = consecutiveRejects(state.history);
-            if (rejectStreak >= maxReject && options?.goalPath) {
-                log.system(`\n🚨 ${rejectStreak} consecutive rejections — entering RADICAL PLAN mode...`);
-                state.phase = "evaluator:radical";
-                saveState(state);
+                // Step 3: Radical plan (rethink from goal.md + failure history)
+                if (options?.goalPath) {
+                    log.system("   Step 3/3: 🚨 Radical plan (rethink from goal.md)...");
+                    state.phase = "evaluator:radical";
+                    saveState(state);
 
-                // Collect evaluator reports from the last N rejected iterations
-                const failureReports: string[] = [];
-                const recentRejects = state.history.slice(-rejectStreak);
-                for (const rec of recentRejects) {
-                    const archived = readFileOrDefault(
-                        `.descend/history/iteration-${rec.iteration}/evaluator/report.md`,
-                        "",
+                    const failureReports: string[] = [];
+                    const recentRejects = state.history.slice(-rejectStreak);
+                    for (const rec of recentRejects) {
+                        const archived = readFileOrDefault(
+                            `.descend/history/iteration-${rec.iteration}/evaluator/report.md`,
+                            "",
+                        );
+                        const report = archived || readFileOrDefault(".descend/evaluator/report.md", "");
+                        if (report) failureReports.push(report);
+                    }
+
+                    const goalContent = readFileSync(options.goalPath, "utf-8");
+                    await withRetry(
+                        (cfg) => runRadicalPlan(client, cfg, goalContent, failureReports),
+                        agents.evaluator,
+                        agents.evaluator.retryBudget ?? maxRetries,
                     );
-                    // Fall back to current report for the most recent iteration
-                    const report = archived || readFileOrDefault(".descend/evaluator/report.md", "");
-                    if (report) failureReports.push(report);
+                    log.system("   📋 RADICAL PLAN written to .descend/evaluator/report.md");
                 }
-
-                const goalContent = readFileSync(options.goalPath, "utf-8");
-                await withRetry(
-                    (cfg) => runRadicalPlan(client, cfg, goalContent, failureReports),
-                    agents.evaluator,
-                    agents.evaluator.retryBudget ?? maxRetries,
-                );
-
-                log.system("📋 RADICAL PLAN written to .descend/evaluator/report.md");
             }
 
             // Terminator: Continue or stop?
