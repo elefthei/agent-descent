@@ -1,26 +1,27 @@
 /**
  * Propositional logic DSL for gatekeeper and terminator rules.
  * Ternary (Kleene) logic: SUCCESS | FAILURE | CONTINUE.
+ * All rules are async (Promise<Tri>) to support LLM-backed evaluation.
  *
  * Usage:
  *   import { Gate, type Tri, type Rule } from "./rules.js";
  *   const rule = Gate.and(ruleA, Gate.or(ruleB, ruleC), Gate.not(ruleD));
- *   const result: Tri = rule(context);
+ *   const result: Tri = await rule(context);
  */
 
 export type Tri = "SUCCESS" | "FAILURE" | "CONTINUE";
 
-export type Rule<A> = (ctx: A) => Tri;
+export type Rule<A> = (ctx: A) => Promise<Tri>;
 
 export const Gate = {
     /**
      * AND: FAILURE if any fails, SUCCESS if all succeed, CONTINUE otherwise.
      */
     and<A>(...rules: Rule<A>[]): Rule<A> {
-        return (ctx: A) => {
+        return async (ctx: A) => {
             let hasContinue = false;
             for (const rule of rules) {
-                const result = rule(ctx);
+                const result = await rule(ctx);
                 if (result === "FAILURE") return "FAILURE";
                 if (result === "CONTINUE") hasContinue = true;
             }
@@ -32,10 +33,10 @@ export const Gate = {
      * OR: SUCCESS if any succeeds, FAILURE if all fail, CONTINUE otherwise.
      */
     or<A>(...rules: Rule<A>[]): Rule<A> {
-        return (ctx: A) => {
+        return async (ctx: A) => {
             let hasContinue = false;
             for (const rule of rules) {
-                const result = rule(ctx);
+                const result = await rule(ctx);
                 if (result === "SUCCESS") return "SUCCESS";
                 if (result === "CONTINUE") hasContinue = true;
             }
@@ -47,12 +48,19 @@ export const Gate = {
      * NOT: inverts SUCCESS↔FAILURE, CONTINUE stays CONTINUE.
      */
     not<A>(rule: Rule<A>): Rule<A> {
-        return (ctx: A) => {
-            const result = rule(ctx);
+        return async (ctx: A) => {
+            const result = await rule(ctx);
             if (result === "SUCCESS") return "FAILURE";
             if (result === "FAILURE") return "SUCCESS";
             return "CONTINUE";
         };
+    },
+
+    /**
+     * Lift a synchronous (ctx => Tri) function into an async Rule<A>.
+     */
+    lift<A>(fn: (ctx: A) => Tri): Rule<A> {
+        return async (ctx: A) => fn(ctx);
     },
 
     /**
@@ -66,6 +74,6 @@ export const Gate = {
      * Always returns CONTINUE — defer to next evaluation.
      */
     defer<A>(): Rule<A> {
-        return () => "CONTINUE";
+        return async () => "CONTINUE";
     },
 };

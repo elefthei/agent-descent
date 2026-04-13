@@ -1,4 +1,5 @@
 import type { CopilotClient } from "@github/copilot-sdk";
+import type { Rule } from "./rules.js";
 
 // ── Agent Config ────────────────────────────────────────────
 
@@ -24,34 +25,6 @@ export interface Agent<TContext, TResult> {
     run(client: CopilotClient, config: AgentConfig, ctx: TContext): Promise<TResult>;
 }
 
-// ── Orchestrator Interface ──────────────────────────────────
-
-/**
- * An orchestrator composes multiple agents and returns an aggregate result.
- * It is itself an Agent — orchestrators can be nested.
- */
-export interface Orchestrator<TContext, TResult> extends Agent<TContext, TResult> {
-    agents: Agent<any, any>[];
-}
-
-// ── Evaluator Interface ─────────────────────────────────────
-
-/** Uniform result from any evaluator (axis, symbolic, or orchestrator). */
-export interface EvaluatorResult {
-    score: number;
-    feedback: string;
-}
-
-// ── Gatekeeper Result ───────────────────────────────────────
-
-import type { Tri } from "./rules.js";
-
-/** Result of gatekeeper/terminator propositional logic evaluation. */
-export interface GatekeeperResult {
-    result: Tri;
-    feedback: string;
-}
-
 // ── Implementor Interface ───────────────────────────────────
 
 export type ImplementorKind = "Research" | "Plan" | "Feature" | "Reliability" | "Refactor";
@@ -61,6 +34,42 @@ export interface ImplementorResult {
     kinds: Set<ImplementorKind>;
     feedback: string;
     iterations: number;
+}
+
+/**
+ * An agent that produces code changes, artifacts, or state mutations.
+ */
+export interface Implementor<TContext = void> extends Agent<TContext, ImplementorResult> {}
+
+// ── Evaluator Interface ─────────────────────────────────────
+
+/** Uniform result from any evaluator (axis, symbolic, or orchestrator). */
+export interface EvaluatorResult {
+    score: number;
+    feedback: string;
+}
+
+/**
+ * An agent that scores or assesses changes.
+ */
+export interface Evaluator<TContext = void> extends Agent<TContext, EvaluatorResult> {}
+
+// ── Validator Interface ─────────────────────────────────────
+
+import type { Tri } from "./rules.js";
+
+/** Result of validator propositional logic evaluation. */
+export interface GatekeeperResult {
+    result: Tri;
+    feedback: string;
+}
+
+/**
+ * An agent that makes gate decisions using propositional logic (Gate rules).
+ * The rule() method returns a composable Rule<TContext> for use with Gate combinators.
+ */
+export interface Validator<TContext> extends Agent<TContext, GatekeeperResult> {
+    rule(): Rule<TContext>;
 }
 
 // ── Evaluator Orchestrator Result ───────────────────────────

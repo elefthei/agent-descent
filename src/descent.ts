@@ -1,15 +1,15 @@
 import type { CopilotClient } from "@github/copilot-sdk";
 import { writeFileSync } from "fs";
-import { runSetup } from "./agents/setup.js";
+import { setupImplementor } from "./agents/setup.js";
 import {
-    runImplementorResearch,
-    runImplementorPlan,
-    runImplementorExec,
+    researchImplementor,
+    planImplementor,
+    execImplementor,
 } from "./agents/implementor.js";
-import { runEvaluator, runRadicalPlan, evaluateTerminator } from "./agents/evaluator.js";
-import { runTerminator } from "./agents/terminator.js";
-import { runReliabilityCampaign } from "./agents/campaigns/reliability.js";
-import { runModularityCampaign } from "./agents/campaigns/modularity.js";
+import { evaluatorOrchestrator, radicalPlanImplementor } from "./agents/evaluator.js";
+import { terminatorValidator, agenticTerminator } from "./agents/terminator.js";
+import { reliabilityCampaign } from "./agents/campaigns/reliability.js";
+import { modularityCampaign } from "./agents/campaigns/modularity.js";
 import { gitCommitAll, gitRevertToBaseline, gitCommitDescendOnly, getHeadSha } from "./utils/git.js";
 import { log } from "./utils/logger.js";
 import { saveState, loadState, archiveIteration, detectStagnation, consecutiveRejects, isValidState, type DescentState, type IterationRecord } from "./utils/state.js";
@@ -87,7 +87,7 @@ export async function setup(
         reasoningEffort: "high",
         timeout: options?.timeout,
     };
-    await runSetup(client, config, goalPath);
+    await setupImplementor.run(client, config, { goalPath });
     return agents;
 }
 
@@ -144,14 +144,14 @@ async function runImplementorPhase(ctx: LoopContext): Promise<void> {
     // Check predecessor error
     if (await checkPreviousError(ctx.client, ctx.agents.evaluator, ".descend/evaluator/report.md")) {
         log.system("⚠️ Evaluator report contains system error — re-running evaluator");
-        await withRetry((cfg) => runEvaluator(ctx.client, cfg, ctx.state.baselineCommit), ctx.agents.evaluator, ctx.maxRetries);
+        await withRetry((cfg) => evaluatorOrchestrator.run(ctx.client, cfg, { baselineSha: ctx.state.baselineCommit }), ctx.agents.evaluator, ctx.maxRetries);
     }
 
     if (!ctx.options.skipResearch) {
         log.system("📚 Implementor: Research phase...");
         ctx.state.phase = "implementor:research";
         saveState(ctx.state);
-        const r = await withRetry((cfg) => runImplementorResearch(ctx.client, cfg), ctx.agents.implementor, implRetries);
+        const r = await withRetry((cfg) => researchImplementor.run(ctx.client, cfg), ctx.agents.implementor, implRetries);
         log.system(`   ← research: [${[...r.kinds].join(", ")}] ${r.feedback}`);
     }
 
@@ -159,7 +159,7 @@ async function runImplementorPhase(ctx: LoopContext): Promise<void> {
         log.system("📋 Implementor: Plan phase...");
         ctx.state.phase = "implementor:plan";
         saveState(ctx.state);
-        const r = await withRetry((cfg) => runImplementorPlan(ctx.client, cfg), ctx.agents.implementor, implRetries);
+        const r = await withRetry((cfg) => planImplementor.run(ctx.client, cfg), ctx.agents.implementor, implRetries);
         log.system(`   ← plan: [${[...r.kinds].join(", ")}] ${r.feedback}`);
     }
 
@@ -170,10 +170,10 @@ async function runImplementorPhase(ctx: LoopContext): Promise<void> {
     // Check predecessor error
     if (await checkPreviousError(ctx.client, ctx.agents.implementor, ".descend/implementor/report.md")) {
         log.system("⚠️ Implementor report contains system error — re-running implementor:exec");
-        await withRetry((cfg) => runImplementorExec(ctx.client, cfg), ctx.agents.implementor, implRetries);
+        await withRetry((cfg) => execImplementor.run(ctx.client, cfg), ctx.agents.implementor, implRetries);
     }
 
-    const r = await withRetry((cfg) => runImplementorExec(ctx.client, cfg), ctx.agents.implementor, implRetries);
+    const r = await withRetry((cfg) => execImplementor.run(ctx.client, cfg), ctx.agents.implementor, implRetries);
     log.system(`   ← exec: [${[...r.kinds].join(", ")}] ${r.feedback}`);
 }
 
@@ -186,7 +186,7 @@ async function runEvaluatorPhase(
 
     log.system("🔍 Evaluator: Reviewing changes...");
     const evalResult = await withRetry(
-        (cfg) => runEvaluator(ctx.client, cfg, baseline),
+        (cfg) => evaluatorOrchestrator.run(ctx.client, cfg, { baselineSha: baseline }),
         ctx.agents.evaluator,
         ctx.agents.evaluator.retryBudget ?? ctx.maxRetries,
     );
@@ -238,14 +238,14 @@ async function runEscalation(ctx: LoopContext): Promise<void> {
     log.system("   Step 1/3: 🛡️ Reliability campaign...");
     ctx.state.phase = "campaign:reliability";
     saveState(ctx.state);
-    const relResult = await withRetry((cfg) => runReliabilityCampaign(ctx.client, cfg), ctx.agents.implementor, ctx.maxRetries);
+    const relResult = await withRetry((cfg) => reliabilityCampaign.run(ctx.client, cfg), ctx.agents.implementor, ctx.maxRetries);
     log.system(`   ← [${[...relResult.kinds].join(", ")}] ${relResult.feedback}`);
 
     // Step 2: Modularity campaign
     log.system("   Step 2/3: 🏗️ Modularity campaign...");
     ctx.state.phase = "campaign:modularity";
     saveState(ctx.state);
-    const modResult = await withRetry((cfg) => runModularityCampaign(ctx.client, cfg), ctx.agents.implementor, ctx.maxRetries);
+    const modResult = await withRetry((cfg) => modularityCampaign.run(ctx.client, cfg), ctx.agents.implementor, ctx.maxRetries);
     log.system(`   ← [${[...modResult.kinds].join(", ")}] ${modResult.feedback}`);
 
     // Step 3: Radical plan
@@ -260,7 +260,7 @@ async function runEscalation(ctx: LoopContext): Promise<void> {
         }).filter(Boolean);
 
         const goalContent = readFileSync(ctx.options.goalPath, "utf-8");
-        await withRetry((cfg) => runRadicalPlan(ctx.client, cfg, goalContent, failureReports), ctx.agents.evaluator, ctx.maxRetries);
+        await withRetry((cfg) => radicalPlanImplementor.run(ctx.client, cfg, { goalContent, failureReports }), ctx.agents.evaluator, ctx.maxRetries);
         log.system("   📋 RADICAL PLAN written");
     }
 }
@@ -277,7 +277,7 @@ async function runTerminatorPhase(
     if (await checkPreviousError(ctx.client, ctx.agents.evaluator, ".descend/evaluator/report.md")) {
         log.system("⚠️ Evaluator report contains system error — re-running evaluator");
         const retryEval = await withRetry(
-            (cfg) => runEvaluator(ctx.client, cfg, ctx.state.baselineCommit),
+            (cfg) => evaluatorOrchestrator.run(ctx.client, cfg, { baselineSha: ctx.state.baselineCommit }),
             ctx.agents.evaluator, ctx.maxRetries,
         );
         Object.assign(evalResult, retryEval);
@@ -286,7 +286,7 @@ async function runTerminatorPhase(
     log.system("🎯 Terminator: Checking convergence...");
 
     // Rule-based pre-check (fast, deterministic)
-    const ruleResult = evaluateTerminator(evalResult.axes, ctx.state.history, iteration);
+    const ruleResult = await terminatorValidator.run(ctx.client, ctx.agents.terminator, { results: evalResult.axes, history: ctx.state.history, iteration });
     log.system(`   Rule check: ${ruleResult.result} — ${ruleResult.feedback}`);
 
     if (ruleResult.result === "SUCCESS") {
@@ -298,7 +298,7 @@ async function runTerminatorPhase(
 
     // Agentic terminator for nuanced cases
     const termResult = await withRetry(
-        (cfg) => runTerminator(ctx.client, cfg, { evalResult, history: ctx.state.history }),
+        (cfg) => agenticTerminator.run(ctx.client, cfg, { evalResult, history: ctx.state.history }),
         ctx.agents.terminator,
         ctx.agents.terminator.retryBudget ?? ctx.maxRetries,
     );
