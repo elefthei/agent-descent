@@ -12,12 +12,13 @@ import { reliabilityCampaign } from "./agents/campaigns/reliability.js";
 import { modularityCampaign } from "./agents/campaigns/modularity.js";
 import { gitCommitAll, gitRevertToBaseline, gitCommitDescendOnly, getHeadSha } from "./utils/git.js";
 import { log } from "./utils/logger.js";
-import { saveState, loadState, archiveIteration, detectStagnation, consecutiveRejects, isValidState, type DescentState, type IterationRecord } from "./utils/state.js";
+import { saveState, loadState, archiveIteration, detectStagnation, consecutiveRejects, axisDeclining, isValidState, type DescentState, type IterationRecord } from "./utils/state.js";
 import { readFileOrDefault } from "./utils/files.js";
 import { readFileSync } from "fs";
 import { DEFAULT_MODEL, getNextModel, isRateLimitError } from "./models.js";
 import { checkPreviousError } from "./utils/check-error.js";
 import type { AgentConfig, EvalOrchestratorResult } from "./types.js";
+import { Gate, type Rule } from "./rules.js";
 
 // ── Public types ────────────────────────────────────────────
 
@@ -228,32 +229,71 @@ async function runEvaluatorPhase(
     return { evalResult, baseline };
 }
 
+// ── Campaign Gate Rules ──────────────────────────────────────
+// SUCCESS = trigger campaign, CONTINUE = skip, FAILURE = error
+
+type EscalationContext = { history: IterationRecord[]; maxReject: number };
+
+const consecutiveRejectsAbove = (n: number): Rule<EscalationContext> =>
+    Gate.lift((ctx) => Gate.fromBool(consecutiveRejects(ctx.history) >= n));
+
+const reliabilityDeclining: Rule<EscalationContext> = Gate.lift((ctx) =>
+    Gate.fromBool(axisDeclining(ctx.history, "reliability", 2)));
+
+const modularityDeclining: Rule<EscalationContext> = Gate.lift((ctx) =>
+    Gate.fromBool(axisDeclining(ctx.history, "modularity", 2)));
+
+const reliabilityCampaignRule: Rule<EscalationContext> = Gate.or(
+    (ctx) => consecutiveRejectsAbove(ctx.maxReject)(ctx),
+    reliabilityDeclining,
+);
+
+const modularityCampaignRule: Rule<EscalationContext> = Gate.or(
+    (ctx) => consecutiveRejectsAbove(ctx.maxReject)(ctx),
+    modularityDeclining,
+);
+
+const radicalPlanRule: Rule<EscalationContext> = (ctx) =>
+    consecutiveRejectsAbove(ctx.maxReject)(ctx);
+
+// ── Escalation ──────────────────────────────────────────────
+
 async function runEscalation(ctx: LoopContext): Promise<void> {
-    const rejectStreak = consecutiveRejects(ctx.state.history);
-    if (rejectStreak < (ctx.options.maxReject ?? 3)) return;
+    const escCtx: EscalationContext = {
+        history: ctx.state.history,
+        maxReject: ctx.options.maxReject ?? 3,
+    };
 
-    log.system(`\n🚨 ${rejectStreak} consecutive rejections — escalating...`);
+    const runReliability = await reliabilityCampaignRule(escCtx) === "SUCCESS";
+    const runModularity = await modularityCampaignRule(escCtx) === "SUCCESS";
+    const runRadical = await radicalPlanRule(escCtx) === "SUCCESS";
 
-    // Step 1: Reliability campaign
-    log.system("   Step 1/3: 🛡️ Reliability campaign...");
-    ctx.state.phase = "campaign:reliability";
-    saveState(ctx.state);
-    const relResult = await withRetry((cfg) => reliabilityCampaign.run(ctx.client, cfg), ctx.agents.implementor, ctx.maxRetries);
-    log.system(`   ← [${[...relResult.kinds].join(", ")}] ${relResult.feedback}`);
+    if (!runReliability && !runModularity && !runRadical) return;
 
-    // Step 2: Modularity campaign
-    log.system("   Step 2/3: 🏗️ Modularity campaign...");
-    ctx.state.phase = "campaign:modularity";
-    saveState(ctx.state);
-    const modResult = await withRetry((cfg) => modularityCampaign.run(ctx.client, cfg), ctx.agents.implementor, ctx.maxRetries);
-    log.system(`   ← [${[...modResult.kinds].join(", ")}] ${modResult.feedback}`);
+    log.system("\n🚨 Escalation triggered...");
 
-    // Step 3: Radical plan
-    if (ctx.options.goalPath) {
-        log.system("   Step 3/3: 🚨 Radical plan...");
+    if (runReliability) {
+        log.system("   🛡️ Reliability campaign (scores declining or rejection streak)...");
+        ctx.state.phase = "campaign:reliability";
+        saveState(ctx.state);
+        const r = await withRetry((cfg) => reliabilityCampaign.run(ctx.client, cfg), ctx.agents.implementor, ctx.maxRetries);
+        log.system(`   ← [${[...r.kinds].join(", ")}] ${r.feedback}`);
+    }
+
+    if (runModularity) {
+        log.system("   🏗️ Modularity campaign (scores declining or rejection streak)...");
+        ctx.state.phase = "campaign:modularity";
+        saveState(ctx.state);
+        const r = await withRetry((cfg) => modularityCampaign.run(ctx.client, cfg), ctx.agents.implementor, ctx.maxRetries);
+        log.system(`   ← [${[...r.kinds].join(", ")}] ${r.feedback}`);
+    }
+
+    if (runRadical && ctx.options.goalPath) {
+        log.system("   🚨 Radical plan (rethink from goal.md)...");
         ctx.state.phase = "evaluator:radical";
         saveState(ctx.state);
 
+        const rejectStreak = consecutiveRejects(ctx.state.history);
         const failureReports = ctx.state.history.slice(-rejectStreak).map((rec) => {
             const archived = readFileOrDefault(`.descend/history/iteration-${rec.iteration}/evaluator/report.md`, "");
             return archived || readFileOrDefault(".descend/evaluator/report.md", "");

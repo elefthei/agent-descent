@@ -6,6 +6,7 @@ import { createImplementorResultTool } from "../../tools/decisions.js";
 import { attachLogger, log } from "../../utils/logger.js";
 import { loadPrompt } from "../../utils/prompt.js";
 import { readFileOrDefault } from "../../utils/files.js";
+import { withSession } from "../../utils/session.js";
 
 const CAMPAIGN_TIMEOUT = 4 * 60 * 60 * 1000;
 
@@ -19,7 +20,7 @@ class ModularityCampaign implements Implementor<void> {
         const evalReport = readFileOrDefault(".descend/evaluator/report.md", "No evaluator report.");
         const { tool, getResult } = createImplementorResultTool();
 
-        const session = await client.createSession({
+        return withSession(client, {
             workingDirectory: process.cwd(),
             model: config.model,
             reasoningEffort: config.reasoningEffort ?? "high",
@@ -28,31 +29,21 @@ class ModularityCampaign implements Implementor<void> {
             onPermissionRequest: approveAll,
             infiniteSessions: { enabled: false },
             streaming: true,
+        }, async (session) => {
+            attachLogger(session, this.name);
+            await session.sendAndWait({
+                prompt: [
+                    "## Goal", goalFile, "",
+                    "## Evaluator Report (modularity has been declining)", evalReport, "",
+                    "Run the refactoring campaign. Audit structure, refactor, verify.",
+                ].join("\n"),
+            }, config.timeout ?? CAMPAIGN_TIMEOUT);
+
+            log.system("🏗️ Modularity Campaign complete.");
+            const result = getResult();
+            if (result) return { ...result, iterations: 1 };
+            return { kinds: new Set(["Refactor"]), feedback: "Modularity campaign completed", iterations: 1 } as ImplementorResult;
         });
-        attachLogger(session, this.name);
-
-        await session.sendAndWait({
-            prompt: [
-                "## Goal",
-                goalFile,
-                "",
-                "## Evaluator Report (modularity has been declining)",
-                evalReport,
-                "",
-                "Run the refactoring campaign. Audit structure, refactor, verify.",
-            ].join("\n"),
-        }, config.timeout ?? CAMPAIGN_TIMEOUT);
-
-        await session.disconnect();
-        await client.deleteSession(session.sessionId);
-
-        log.system("🏗️ Modularity Campaign complete.");
-
-        const result = getResult();
-        if (result) {
-            return { ...result, iterations: 1 };
-        }
-        return { kinds: new Set(["Refactor"]), feedback: "Modularity campaign completed", iterations: 1 };
     }
 }
 

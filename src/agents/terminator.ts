@@ -79,16 +79,17 @@ class TerminatorValidator implements Validator<TerminatorContext> {
     }
 
     async run(_client: CopilotClient, _config: AgentConfig, ctx: TerminatorContext): Promise<GatekeeperResult> {
+        // Early iteration guard — never terminate in first 2 iterations
+        if (await earlyIteration(ctx) === "SUCCESS") {
+            return { result: "CONTINUE", feedback: `Iteration ${ctx.iteration} ≤ 2 — too early to stop` };
+        }
+
         const result = await this.rule()(ctx);
 
         if (result === "SUCCESS") {
             if (await allScoresAbove(90)(ctx) === "SUCCESS") return { result: "SUCCESS", feedback: "All scores ≥ 90 — goal achieved" };
             if (await scoresDecreasing(ctx) === "SUCCESS") return { result: "SUCCESS", feedback: "Scores decreasing — divergence detected" };
             if (await scoresPlateau(ctx) === "SUCCESS") return { result: "SUCCESS", feedback: "Score plateau — diminishing returns" };
-        }
-
-        if (await earlyIteration(ctx) === "SUCCESS") {
-            return { result: "CONTINUE", feedback: `Iteration ${ctx.iteration} ≤ 2 — too early to stop` };
         }
 
         return { result: "CONTINUE", feedback: "No termination condition met" };

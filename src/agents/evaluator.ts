@@ -11,6 +11,7 @@ import { attachLogger, log } from "../utils/logger.js";
 import { getGitDiff } from "../utils/git.js";
 import { readFileOrDefault, readDirContents } from "../utils/files.js";
 import { loadPrompt } from "../utils/prompt.js";
+import { withSession } from "../utils/session.js";
 
 // ── Shared context built once, passed to all subagents ──────
 
@@ -75,8 +76,8 @@ class AxisEvaluator implements Evaluator<EvalContext> {
     async run(client: CopilotClient, config: AgentConfig, ctx: EvalContext): Promise<EvaluatorResult> {
         const { tool, getResult } = createAxisScoreTool(this.axis);
 
-        const session = await client.createSession({
-        workingDirectory: process.cwd(),
+        return withSession(client, {
+            workingDirectory: process.cwd(),
             model: config.model,
             reasoningEffort: config.reasoningEffort ?? "high",
             systemMessage: { mode: "replace", content: loadPrompt(AXIS_PROMPTS[this.axis]!, { CWD: process.cwd() }) },
@@ -84,18 +85,14 @@ class AxisEvaluator implements Evaluator<EvalContext> {
             onPermissionRequest: approveAll,
             infiniteSessions: { enabled: false },
             streaming: true,
+        }, async (session) => {
+            attachLogger(session, this.name);
+            await session.sendAndWait({ prompt: buildAxisPrompt(ctx) }, config.timeout ?? DEFAULT_TIMEOUT);
+
+            const result = getResult();
+            if (!result) throw new Error(`${this.name} did not call submit_axis_score`);
+            return { score: result.score, feedback: result.issues.join("; ") };
         });
-        attachLogger(session, this.name);
-
-        await session.sendAndWait({ prompt: buildAxisPrompt(ctx) }, config.timeout ?? DEFAULT_TIMEOUT);
-        await session.disconnect();
-        await client.deleteSession(session.sessionId);
-
-        const result = getResult();
-        if (!result) {
-            throw new Error(`${this.name} did not call submit_axis_score`);
-        }
-        return { score: result.score, feedback: result.issues.join("; ") };
     }
 }
 
