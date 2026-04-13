@@ -4,6 +4,7 @@ import { z } from "zod";
 import { existsSync, readFileSync } from "fs";
 import type { AgentConfig } from "../types.js";
 import { attachLogger } from "../utils/logger.js";
+import { withSession } from "../utils/session.js";
 
 /**
  * Agentic check: spins up a lightweight agent session to read a file
@@ -51,7 +52,7 @@ export async function checkPreviousError(
         },
     });
 
-    const session = await client.createSession({
+    await withSession(client, {
         workingDirectory: process.cwd(),
         model: config.model,
         reasoningEffort: "low",
@@ -63,15 +64,12 @@ export async function checkPreviousError(
         onPermissionRequest: approveAll,
         infiniteSessions: { enabled: false },
         streaming: true,
+    }, async (session) => {
+        attachLogger(session, "system");
+        await session.sendAndWait({
+            prompt: `Is this a system error or legitimate content?\n\n---\n${content.slice(0, 2000)}\n---`,
+        }, 30_000);
     });
-    attachLogger(session, "system");
-
-    await session.sendAndWait({
-        prompt: `Is this a system error or legitimate content?\n\n---\n${content.slice(0, 2000)}\n---`,
-    }, 30_000);
-
-    await session.disconnect();
-    await client.deleteSession(session.sessionId);
 
     return box.result?.hasError ?? false;
 }

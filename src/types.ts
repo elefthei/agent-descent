@@ -81,3 +81,8 @@ export interface EvalOrchestratorResult extends EvaluatorResult {
     /** Gate decision: approve or reject */
     decision: "approve" | "reject";
 }
+
+// ── Shared Aliases ──────────────────────────────────────────
+
+/** Map of axis name → evaluator result, used across evaluator and terminator modules. */
+export type EvalResults = Map<string, EvaluatorResult>;

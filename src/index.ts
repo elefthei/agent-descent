@@ -8,12 +8,13 @@ export { setup, descent } from "./descent.js";
 export { DEFAULT_MODEL, MODEL_CHAIN, getNextModel } from "./models.js";
 export type {
     AgentConfig,
+    AgentConfigs,
     Agents,
     SetupOptions,
     DescentOptions,
     DescentResult,
 } from "./descent.js";
-export type { Agent, Implementor, Evaluator, Validator, EvaluatorResult, EvalOrchestratorResult, GatekeeperResult, ImplementorKind, ImplementorResult } from "./types.js";
+export type { Agent, Implementor, Evaluator, Validator, EvaluatorResult, EvalOrchestratorResult, GatekeeperResult, ImplementorKind, ImplementorResult, EvalResults } from "./types.js";
 export { Gate, type Tri, type Rule } from "./rules.js";
 export { llmAsJudge } from "./agents/llm-judge.js";
 

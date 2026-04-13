@@ -99,3 +99,31 @@ export function createImplementorResultTool() {
         } : null,
     };
 }
+
+// ── Gatekeeper Decision Tool ────────────────────────────────
+
+import type { Tri } from "../rules.js";
+import type { GatekeeperResult } from "../types.js";
+
+export function createGatekeeperTool() {
+    const box = { result: null as GatekeeperResult | null };
+
+    const tool = defineTool("make_decision", {
+        description: "Submit your decision: SUCCESS, FAILURE, or CONTINUE.",
+        parameters: z.object({
+            result: z
+                .enum(["SUCCESS", "FAILURE", "CONTINUE"])
+                .describe("SUCCESS=positive, FAILURE=negative, CONTINUE=defer"),
+            feedback: z
+                .string()
+                .describe("Brief explanation of your decision"),
+        }),
+        skipPermission: true,
+        handler: async (params: { result: Tri; feedback: string }) => {
+            box.result = params;
+            return `Decision recorded: ${params.result}`;
+        },
+    });
+
+    return { tool, getResult: () => box.result };
+}

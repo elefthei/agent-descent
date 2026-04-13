@@ -4,7 +4,7 @@ import {
     createAxisScoreTool,
     createSymbolicReportTool,
 } from "../tools/decisions.js";
-import type { Agent, Evaluator, Validator, AgentConfig, EvaluatorResult, EvalOrchestratorResult, GatekeeperResult } from "../types.js";
+import type { Agent, Evaluator, Validator, AgentConfig, EvaluatorResult, EvalOrchestratorResult, GatekeeperResult, EvalResults } from "../types.js";
 import { DEFAULT_TIMEOUT } from "../types.js";
 import { Gate, type Rule } from "../rules.js";
 import { attachLogger, log } from "../utils/logger.js";
@@ -104,8 +104,8 @@ class SymbolicEvaluator implements Evaluator<EvalContext> {
     async run(client: CopilotClient, config: AgentConfig, ctx: EvalContext): Promise<EvaluatorResult> {
         const { tool, getResult } = createSymbolicReportTool();
 
-        const session = await client.createSession({
-        workingDirectory: process.cwd(),
+        return withSession(client, {
+            workingDirectory: process.cwd(),
             model: config.model,
             reasoningEffort: config.reasoningEffort ?? "high",
             systemMessage: { mode: "replace", content: loadPrompt("evaluator-symbolic", { CWD: process.cwd() }) },
@@ -113,38 +113,27 @@ class SymbolicEvaluator implements Evaluator<EvalContext> {
             onPermissionRequest: approveAll,
             infiniteSessions: { enabled: false },
             streaming: true,
+        }, async (session) => {
+            attachLogger(session, this.name);
+
+            const prompt = [
+                "## Evaluator Goal", ctx.evalGoal, "",
+                "## Git Diff", "```diff", ctx.gitDiff || "(no changes)", "```", "",
+                "## Implementor Report", ctx.implReport, "",
+                "Discover what symbolic checks are available, run them, and report findings.",
+                "Call submit_symbolic_report with your results.",
+            ].join("\n");
+
+            await session.sendAndWait({ prompt }, config.timeout ?? DEFAULT_TIMEOUT);
+
+            const result = getResult();
+            if (!result) throw new Error("evaluator:symbolic did not call submit_symbolic_report");
+            const feedback = [
+                ...result.findings,
+                ...result.suggestions.map((s: string) => `Suggestion: ${s}`),
+            ].join("; ");
+            return { score: 0, feedback: feedback || "No symbolic findings" };
         });
-        attachLogger(session, this.name);
-
-        const prompt = [
-            "## Evaluator Goal",
-            ctx.evalGoal,
-            "",
-            "## Git Diff",
-            "```diff",
-            ctx.gitDiff || "(no changes)",
-            "```",
-            "",
-            "## Implementor Report",
-            ctx.implReport,
-            "",
-            "Discover what symbolic checks are available, run them, and report findings.",
-            "Call submit_symbolic_report with your results.",
-        ].join("\n");
-
-        await session.sendAndWait({ prompt }, config.timeout ?? DEFAULT_TIMEOUT);
-        await session.disconnect();
-        await client.deleteSession(session.sessionId);
-
-        const result = getResult();
-        if (!result) {
-            throw new Error("evaluator:symbolic did not call submit_symbolic_report");
-        }
-        const feedback = [
-            ...result.findings,
-            ...result.suggestions.map((s: string) => `Suggestion: ${s}`),
-        ].join("; ");
-        return { score: 0, feedback: feedback || "No symbolic findings" };
     }
 }
 
@@ -160,45 +149,34 @@ class SynthesizerAgent implements Agent<SynthContext, void> {
     name = "evaluator:synthesizer";
 
     async run(client: CopilotClient, config: AgentConfig, ctx: SynthContext): Promise<void> {
-        const session = await client.createSession({
-        workingDirectory: process.cwd(),
+        await withSession(client, {
+            workingDirectory: process.cwd(),
             model: config.model,
             reasoningEffort: config.reasoningEffort ?? "high",
             systemMessage: { mode: "replace", content: loadPrompt("evaluator-synthesizer", { CWD: process.cwd() }) },
             onPermissionRequest: approveAll,
             infiniteSessions: { enabled: false },
             streaming: true,
+        }, async (session) => {
+            attachLogger(session, this.name);
+
+            const lines: string[] = [
+                "## Decision", ctx.decision === "approve" ? "APPROVED" : "REJECTED", "",
+            ];
+            for (const [name, result] of ctx.results) {
+                lines.push(`## ${name} (${result.score}/100)`);
+                lines.push(result.feedback || "No issues.");
+                lines.push("");
+            }
+            lines.push("## Evaluator Goal", ctx.evalCtx.evalGoal, "",
+                "Write the final evaluation report to .descend/evaluator/report.md.");
+
+            await session.sendAndWait({ prompt: lines.join("\n") }, config.timeout ?? DEFAULT_TIMEOUT);
         });
-        attachLogger(session, this.name);
-
-        const lines: string[] = [
-            "## Decision",
-            ctx.decision === "approve" ? "APPROVED" : "REJECTED",
-            "",
-        ];
-
-        for (const [name, result] of ctx.results) {
-            lines.push(`## ${name} (${result.score}/100)`);
-            lines.push(result.feedback || "No issues.");
-            lines.push("");
-        }
-
-        lines.push("## Evaluator Goal");
-        lines.push(ctx.evalCtx.evalGoal);
-        lines.push("");
-        lines.push("Write the final evaluation report to .descend/evaluator/report.md.");
-
-        const prompt = lines.join("\n");
-
-        await session.sendAndWait({ prompt }, config.timeout ?? DEFAULT_TIMEOUT);
-        await session.disconnect();
-        await client.deleteSession(session.sessionId);
     }
 }
 
 // ── Approval Validator (propositional logic) ────────────────
-
-type EvalResults = Map<string, EvaluatorResult>;
 
 const scoreAbove = (name: string, threshold: number): Rule<EvalResults> =>
     Gate.lift((ctx) => {
@@ -264,19 +242,31 @@ class EvaluatorOrchestrator implements Evaluator<EvalInput> {
     async run(client: CopilotClient, config: AgentConfig, input: EvalInput): Promise<EvalOrchestratorResult> {
         const evalCtx = buildEvalContext(input.baselineSha);
 
-        // Run all evaluators sequentially, collect results
-        const results: EvalResults = new Map();
-
-        for (const [name, evaluator] of [
+        // Run all evaluators concurrently — they are independent
+        const evaluatorEntries: [string, Evaluator<EvalContext>][] = [
             ["features", featuresEvaluator],
             ["reliability", reliabilityEvaluator],
             ["modularity", modularityEvaluator],
             ["symbolic", symbolicEvaluator],
-        ] as const) {
-            log.system(`   → evaluator:${name}`);
-            const result = await (evaluator as Evaluator<EvalContext>).run(client, config, evalCtx);
-            results.set(name, result);
-            log.system(`   ← ${name}: ${result.score}/100`);
+        ];
+
+        log.system("   → running evaluators concurrently...");
+        const settled = await Promise.allSettled(
+            evaluatorEntries.map(async ([name, evaluator]) => {
+                log.system(`   → evaluator:${name}`);
+                const result = await evaluator.run(client, config, evalCtx);
+                log.system(`   ← ${name}: ${result.score}/100`);
+                return [name, result] as [string, EvaluatorResult];
+            }),
+        );
+
+        const results: EvalResults = new Map();
+        for (const entry of settled) {
+            if (entry.status === "fulfilled") {
+                results.set(entry.value[0], entry.value[1]);
+            } else {
+                log.system(`   ⚠️ evaluator failed: ${entry.reason}`);
+            }
         }
 
         // Apply approval validator
@@ -302,57 +292,7 @@ class EvaluatorOrchestrator implements Evaluator<EvalInput> {
     }
 }
 
-// ── Radical Plan Implementor ────────────────────────────────
-
-import type { Implementor, ImplementorResult } from "../types.js";
-
-interface RadicalPlanInput {
-    goalContent: string;
-    failureReports: string[];
-}
-
-class RadicalPlanImplementor implements Implementor<RadicalPlanInput> {
-    name = "implementor:radical-plan";
-
-    async run(client: CopilotClient, config: AgentConfig, ctx: RadicalPlanInput): Promise<ImplementorResult> {
-        const session = await client.createSession({
-            workingDirectory: process.cwd(),
-            model: config.model,
-            reasoningEffort: config.reasoningEffort ?? "high",
-            systemMessage: { mode: "replace", content: loadPrompt("evaluator-radical", { CWD: process.cwd() }) },
-            onPermissionRequest: approveAll,
-            infiniteSessions: { enabled: false },
-            streaming: true,
-        });
-        attachLogger(session, this.name);
-
-        const failureSection = ctx.failureReports
-            .map((report, i) => `### Rejection ${i + 1}\n\n${report}`)
-            .join("\n\n---\n\n");
-
-        await session.sendAndWait({
-            prompt: [
-                "## Original Goal",
-                ctx.goalContent,
-                "",
-                "## Cumulative Failure Reports (most recent last)",
-                failureSection,
-                "",
-                "The implementor has been rejected multiple times in a row.",
-                "Analyze the pattern of failures and write a RADICAL PLAN to .descend/evaluator/report.md.",
-                "Think from first principles — start from the goal, not from the failed approaches.",
-            ].join("\n"),
-        }, config.timeout ?? DEFAULT_TIMEOUT);
-
-        await session.disconnect();
-        await client.deleteSession(session.sessionId);
-        return { kinds: new Set(["Plan"]), feedback: "Radical plan written", iterations: 1 };
-    }
-}
-
 // ── Exports ─────────────────────────────────────────────────
 
 export const evaluatorOrchestrator = new EvaluatorOrchestrator();
 export const approvalValidator = approvalValidatorInstance;
-export const radicalPlanImplementor = new RadicalPlanImplementor();
-export type { EvalResults, RadicalPlanInput };

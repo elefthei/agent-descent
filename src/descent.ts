@@ -6,7 +6,8 @@ import {
     planImplementor,
     execImplementor,
 } from "./agents/implementor.js";
-import { evaluatorOrchestrator, radicalPlanImplementor } from "./agents/evaluator.js";
+import { evaluatorOrchestrator } from "./agents/evaluator.js";
+import { radicalPlanImplementor } from "./agents/radical-plan.js";
 import { terminatorValidator, agenticTerminator } from "./agents/terminator.js";
 import { reliabilityCampaign } from "./agents/campaigns/reliability.js";
 import { modularityCampaign } from "./agents/campaigns/modularity.js";
@@ -24,11 +25,14 @@ import { Gate, type Rule } from "./rules.js";
 
 export type { AgentConfig } from "./types.js";
 
-export interface Agents {
+export interface AgentConfigs {
     implementor: AgentConfig;
     evaluator: AgentConfig;
     terminator: AgentConfig;
 }
+
+/** @deprecated Use AgentConfigs instead */
+export type Agents = AgentConfigs;
 
 export interface SetupOptions {
     implementorModel?: string;
@@ -58,8 +62,8 @@ export async function setup(
     client: CopilotClient,
     goalPath: string,
     options?: SetupOptions,
-): Promise<Agents> {
-    const agents: Agents = {
+): Promise<AgentConfigs> {
+    const agents: AgentConfigs = {
         implementor: {
             model: options?.implementorModel ?? DEFAULT_MODEL,
             reasoningEffort: "high",
@@ -96,7 +100,7 @@ export async function setup(
 
 interface LoopContext {
     client: CopilotClient;
-    agents: Agents;
+    agents: AgentConfigs;
     state: DescentState;
     options: DescentOptions;
     maxRetries: number;
@@ -381,7 +385,7 @@ function handleIterationError(state: DescentState, baseline: string, iteration: 
 
 export async function descent(
     client: CopilotClient,
-    agents: Agents,
+    agents: AgentConfigs,
     options?: DescentOptions,
 ): Promise<DescentResult> {
     const maxRetries = options?.maxRetries ?? 2;
