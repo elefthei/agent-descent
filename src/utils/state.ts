@@ -96,38 +96,6 @@ export function consecutiveRejects(history: IterationRecord[]): number {
     return count;
 }
 
-export function detectStagnation(history: IterationRecord[]): string | null {
-    if (history.length < 3) return null;
-
-    const recent = history.slice(-3);
-
-    // 3 consecutive rejections
-    if (recent.every((r) => r.decision === "reject")) {
-        return "3 consecutive rejections — implementor may be stuck";
-    }
-
-    // 3 consecutive errors
-    if (recent.every((r) => r.decision === "error")) {
-        return "3 consecutive errors — possible systemic issue";
-    }
-
-    // Score plateau (all have scores, <5% spread on max axis)
-    const maxScores = recent.map((r) => r.scores ? Math.max(r.scores.features, r.scores.reliability, r.scores.modularity) : null).filter((s): s is number => s != null);
-    if (maxScores.length === 3) {
-        const spread = Math.max(...maxScores) - Math.min(...maxScores);
-        if (spread < 5) {
-            return `score plateau detected (spread=${spread}, recent max scores: ${maxScores.join(", ")})`;
-        }
-    }
-
-    // Score divergence (decreasing over 3 iterations)
-    if (maxScores.length === 3 && maxScores[0]! > maxScores[1]! && maxScores[1]! > maxScores[2]!) {
-        return `score divergence detected (${maxScores.join(" → ")})`;
-    }
-
-    return null;
-}
-
 /**
  * Detect if a specific axis score has been declining for `window` consecutive iterations.
  */

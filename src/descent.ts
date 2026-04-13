@@ -13,13 +13,14 @@ import { reliabilityCampaign } from "./agents/campaigns/reliability.js";
 import { modularityCampaign } from "./agents/campaigns/modularity.js";
 import { gitCommitAll, gitRevertToBaseline, gitCommitDescendOnly, getHeadSha } from "./utils/git.js";
 import { log } from "./utils/logger.js";
-import { saveState, loadState, archiveIteration, detectStagnation, consecutiveRejects, axisDeclining, isValidState, type DescentState, type IterationRecord } from "./utils/state.js";
+import { saveState, loadState, archiveIteration, consecutiveRejects, axisDeclining, isValidState, type DescentState, type IterationRecord } from "./utils/state.js";
 import { readFileOrDefault } from "./utils/files.js";
 import { readFileSync } from "fs";
 import { DEFAULT_MODEL, getNextModel, isRateLimitError } from "./models.js";
 import { checkPreviousError } from "./utils/check-error.js";
 import type { AgentConfig, EvalOrchestratorResult } from "./types.js";
-import { Gate, type Rule } from "./rules.js";
+import { Gate, type Rule, type Tri } from "./rules.js";
+import type { GatekeeperResult } from "./types.js";
 
 // ── Public types ────────────────────────────────────────────
 
@@ -227,10 +228,60 @@ async function runEvaluatorPhase(
     });
     saveState(ctx.state);
 
-    const warning = detectStagnation(ctx.state.history);
+    const warning = await checkStagnation(ctx.state.history);
     if (warning) log.system(`⚠️ Stagnation warning: ${warning}`);
 
     return { evalResult, baseline };
+}
+
+// ── Stagnation Rules ─────────────────────────────────────────
+// SUCCESS = stagnation detected, CONTINUE = not enough data, FAILURE = healthy
+
+const threeConsecutiveRejects: Rule<IterationRecord[]> = Gate.lift((history) => {
+    if (history.length < 3) return "CONTINUE";
+    return Gate.fromBool(history.slice(-3).every((r) => r.decision === "reject"));
+});
+
+const threeConsecutiveErrors: Rule<IterationRecord[]> = Gate.lift((history) => {
+    if (history.length < 3) return "CONTINUE";
+    return Gate.fromBool(history.slice(-3).every((r) => r.decision === "error"));
+});
+
+const scorePlateau: Rule<IterationRecord[]> = Gate.lift((history) => {
+    if (history.length < 3) return "CONTINUE";
+    const maxScores = history.slice(-3)
+        .map((r) => r.scores ? Math.max(r.scores.features, r.scores.reliability, r.scores.modularity) : null)
+        .filter((s): s is number => s != null);
+    if (maxScores.length < 3) return "CONTINUE";
+    return Gate.fromBool(Math.max(...maxScores) - Math.min(...maxScores) < 5);
+});
+
+const scoreDivergence: Rule<IterationRecord[]> = Gate.lift((history) => {
+    if (history.length < 3) return "CONTINUE";
+    const maxScores = history.slice(-3)
+        .map((r) => r.scores ? Math.max(r.scores.features, r.scores.reliability, r.scores.modularity) : null)
+        .filter((s): s is number => s != null);
+    if (maxScores.length < 3) return "CONTINUE";
+    return Gate.fromBool(maxScores[0]! > maxScores[1]! && maxScores[1]! > maxScores[2]!);
+});
+
+const stagnationRule: Rule<IterationRecord[]> = Gate.or(
+    threeConsecutiveRejects,
+    threeConsecutiveErrors,
+    scorePlateau,
+    scoreDivergence,
+);
+
+async function checkStagnation(history: IterationRecord[]): Promise<string | null> {
+    const result = await stagnationRule(history);
+    if (result !== "SUCCESS") return null;
+
+    // Identify which sub-rule fired for the warning message
+    if (await threeConsecutiveRejects(history) === "SUCCESS") return "3 consecutive rejections — implementor may be stuck";
+    if (await threeConsecutiveErrors(history) === "SUCCESS") return "3 consecutive errors — possible systemic issue";
+    if (await scorePlateau(history) === "SUCCESS") return "score plateau detected (<5-point spread over last 3 iterations)";
+    if (await scoreDivergence(history) === "SUCCESS") return "score divergence detected (decreasing over last 3 iterations)";
+    return "stagnation detected";
 }
 
 // ── Campaign Gate Rules ──────────────────────────────────────
@@ -358,7 +409,7 @@ async function runTerminatorPhase(
     return null;
 }
 
-function handleIterationError(state: DescentState, baseline: string, iteration: number, message: string): string {
+async function handleIterationError(state: DescentState, baseline: string, iteration: number, message: string): Promise<string> {
     log.system(`⚠️ Iteration ${iteration} failed after retries: ${message}`);
     gitRevertToBaseline(baseline);
     writeFileSync(".descend/evaluator/report.md", [
@@ -375,7 +426,7 @@ function handleIterationError(state: DescentState, baseline: string, iteration: 
     state.history.push({ iteration, decision: "error", summary: message });
     saveState(state);
 
-    const warning = detectStagnation(state.history);
+    const warning = await checkStagnation(state.history);
     if (warning) log.system(`⚠️ Stagnation warning: ${warning}`);
 
     return newBaseline;
@@ -423,7 +474,7 @@ export async function descent(
             const result = await runTerminatorPhase(ctx, evalPhase.evalResult, iteration);
             if (result) return result;
         } catch (err) {
-            baseline = handleIterationError(state, baseline, iteration, (err as Error).message);
+            baseline = await handleIterationError(state, baseline, iteration, (err as Error).message);
         }
     }
 
