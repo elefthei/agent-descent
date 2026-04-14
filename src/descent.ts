@@ -93,7 +93,15 @@ export async function setup(
         reasoningEffort: "high",
         timeout: options?.timeout,
     };
-    await setupImplementor.run(client, config, { goalPath });
+    const setupResult = await setupImplementor.run(client, config, { goalPath });
+
+    // Store goal weights in state for downstream agents
+    const initState = loadState();
+    if (initState) {
+        initState.goalWeights = setupResult.goalWeights;
+        saveState(initState);
+    }
+
     return agents;
 }
 

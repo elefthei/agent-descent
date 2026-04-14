@@ -86,3 +86,28 @@ export interface EvalOrchestratorResult extends EvaluatorResult {
 
 /** Map of axis name → evaluator result, used across evaluator and terminator modules. */
 export type EvalResults = Map<string, EvaluatorResult>;
+
+// ── Goal Weights ────────────────────────────────────────────
+
+/** Per-axis weights reflecting goal priority. Must sum to 1.0. */
+export interface GoalWeights {
+    features: number;
+    reliability: number;
+    modularity: number;
+}
+
+export const DEFAULT_GOAL_WEIGHTS: GoalWeights = { features: 1 / 3, reliability: 1 / 3, modularity: 1 / 3 };
+
+/** Compute dot product of goal weights with axis scores. */
+export function weightedScore(weights: GoalWeights, scores: { features: number; reliability: number; modularity: number }): number {
+    return weights.features * scores.features + weights.reliability * scores.reliability + weights.modularity * scores.modularity;
+}
+
+/** Compute per-axis weighted gaps: weight * (100 - score). */
+export function weightedGaps(weights: GoalWeights, scores: { features: number; reliability: number; modularity: number }): GoalWeights {
+    return {
+        features: weights.features * (100 - scores.features),
+        reliability: weights.reliability * (100 - scores.reliability),
+        modularity: weights.modularity * (100 - scores.modularity),
+    };
+}

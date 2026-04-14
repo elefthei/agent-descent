@@ -4,14 +4,15 @@ import {
     createAxisScoreTool,
     createSymbolicReportTool,
 } from "../tools/decisions.js";
-import type { Agent, Evaluator, Validator, AgentConfig, EvaluatorResult, EvalOrchestratorResult, GatekeeperResult, EvalResults } from "../types.js";
-import { DEFAULT_TIMEOUT } from "../types.js";
+import type { Agent, Evaluator, Validator, AgentConfig, EvaluatorResult, EvalOrchestratorResult, GatekeeperResult, EvalResults, GoalWeights } from "../types.js";
+import { DEFAULT_TIMEOUT, weightedScore, weightedGaps } from "../types.js";
 import { Gate, type Rule } from "../rules.js";
 import { attachLogger, log } from "../utils/logger.js";
 import { getGitDiff } from "../utils/git.js";
 import { readFileOrDefault, readDirContents } from "../utils/files.js";
 import { loadPrompt } from "../utils/prompt.js";
 import { withSession } from "../utils/session.js";
+import { loadGoalWeights } from "../utils/state.js";
 
 // ── Shared context built once, passed to all subagents ──────
 
@@ -143,6 +144,9 @@ interface SynthContext {
     evalCtx: EvalContext;
     results: Map<string, EvaluatorResult>;
     decision: "approve" | "reject";
+    goalWeights: GoalWeights;
+    wScore: number;
+    wGaps: GoalWeights;
 }
 
 class SynthesizerAgent implements Agent<SynthContext, void> {
@@ -168,6 +172,22 @@ class SynthesizerAgent implements Agent<SynthContext, void> {
                 lines.push(result.feedback || "No issues.");
                 lines.push("");
             }
+
+            // Weighted scoring analysis
+            const w = ctx.goalWeights;
+            lines.push("## Goal Weights",
+                `- Features: ${(w.features * 100).toFixed(0)}%`,
+                `- Reliability: ${(w.reliability * 100).toFixed(0)}%`,
+                `- Modularity: ${(w.modularity * 100).toFixed(0)}%`,
+                "",
+                `## Weighted Score: ${ctx.wScore.toFixed(1)}/100`,
+                "### Weighted Gaps (where effort should go)",
+                `- Features gap: ${ctx.wGaps.features.toFixed(1)} (weight ${(w.features * 100).toFixed(0)}%)`,
+                `- Reliability gap: ${ctx.wGaps.reliability.toFixed(1)} (weight ${(w.reliability * 100).toFixed(0)}%)`,
+                `- Modularity gap: ${ctx.wGaps.modularity.toFixed(1)} (weight ${(w.modularity * 100).toFixed(0)}%)`,
+                "",
+            );
+
             lines.push("## Evaluator Goal", ctx.evalCtx.evalGoal, "",
                 "Write the final evaluation report to .descend/evaluator/report.md.");
 
@@ -273,18 +293,25 @@ class EvaluatorOrchestrator implements Evaluator<EvalInput> {
         const gateResult = await this.gate.rule()(results);
         const decision = gateResult === "SUCCESS" ? "approve" as const : "reject" as const;
 
-        // Compute aggregate score + feedback
-        const scoringAxes = [...results.entries()].filter(([name]) => name !== "symbolic");
-        const maxScore = Math.max(...scoringAxes.map(([, r]) => r.score));
+        // Compute weighted aggregate score using goal weights
+        const goalWeights = loadGoalWeights();
+        const axisScores = {
+            features: results.get("features")?.score ?? 0,
+            reliability: results.get("reliability")?.score ?? 0,
+            modularity: results.get("modularity")?.score ?? 0,
+        };
+        const wScore = weightedScore(goalWeights, axisScores);
+        const wGaps = weightedGaps(goalWeights, axisScores);
         const allFeedback = [...results.values()].map(r => r.feedback).filter(Boolean);
 
         // Run synthesizer to write report.md
         log.system("   → evaluator:synthesizer");
-        await this.synthesizer.run(client, config, { evalCtx, results, decision });
+        log.system(`   ⚖️ Weighted score: ${wScore.toFixed(1)} (weights: f=${goalWeights.features.toFixed(2)}, r=${goalWeights.reliability.toFixed(2)}, m=${goalWeights.modularity.toFixed(2)})`);
+        await this.synthesizer.run(client, config, { evalCtx, results, decision, goalWeights, wScore, wGaps });
         log.system("   ← report.md written");
 
         return {
-            score: maxScore,
+            score: Math.round(wScore),
             feedback: allFeedback.join("; "),
             axes: results,
             decision,

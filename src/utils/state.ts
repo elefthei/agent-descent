@@ -1,5 +1,8 @@
 import { readFileSync, writeFileSync, mkdirSync, cpSync, rmSync, existsSync } from "fs";
 
+import type { GoalWeights } from "../types.js";
+import { DEFAULT_GOAL_WEIGHTS } from "../types.js";
+
 const REQUIRED_FILES = [
     ".descend/state.json",
     ".descend/implementor/goal.md",
@@ -33,6 +36,7 @@ export interface DescentState {
     baselineCommit: string;
     phase: string;
     history: IterationRecord[];
+    goalWeights?: GoalWeights;
 }
 
 const STATE_PATH = ".descend/state.json";
@@ -109,4 +113,31 @@ export function axisDeclining(history: IterationRecord[], axis: keyof AxisScores
         if (scores[i]! >= scores[i - 1]!) return false;
     }
     return true;
+}
+
+/**
+ * Load goal weights from state, falling back to equal weights.
+ */
+export function loadGoalWeights(): GoalWeights {
+    const state = loadState();
+    return state?.goalWeights ?? DEFAULT_GOAL_WEIGHTS;
+}
+
+/**
+ * Parse goal_weights.json produced by the setup agent.
+ * Validates weights sum to ~1.0 (±0.05 tolerance). Returns default on failure.
+ */
+export function parseGoalWeightsFile(path: string): GoalWeights {
+    try {
+        const raw = JSON.parse(readFileSync(path, "utf-8"));
+        const f = Number(raw.features);
+        const r = Number(raw.reliability);
+        const m = Number(raw.modularity);
+        if (isNaN(f) || isNaN(r) || isNaN(m)) return DEFAULT_GOAL_WEIGHTS;
+        const sum = f + r + m;
+        if (Math.abs(sum - 1.0) > 0.05) return DEFAULT_GOAL_WEIGHTS;
+        return { features: f, reliability: r, modularity: m };
+    } catch {
+        return DEFAULT_GOAL_WEIGHTS;
+    }
 }

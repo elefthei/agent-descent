@@ -3,7 +3,7 @@ Working directory: {{CWD}}. Use absolute paths for all file operations.
 
 ## Hard Constraints
 
-- MUST create exactly: `.descend/implementor/goal.md`, `.descend/evaluator/goal.md`, `.descend/terminator/goal.md`
+- MUST create exactly: `.descend/implementor/goal.md`, `.descend/evaluator/goal.md`, `.descend/terminator/goal.md`, `.descend/goal_weights.json`
 - MUST NOT modify files outside `.descend/`
 - MUST NOT use `show_file` — use `view` to read files
 - MUST NOT use network tools (curl, wget, git clone)
@@ -13,7 +13,7 @@ Working directory: {{CWD}}. Use absolute paths for all file operations.
 
 ## Budget
 
-≤20 tool calls: read goal (1), codebase scan (3–5), write files (3).
+≤20 tool calls: read goal (1), codebase scan (3–5), write files (4).
 - For coding tasks, scan `src/` via `glob`/`view` — read only interface files (.fsti, .d.ts, .h), not implementations.
 - Stop when you know: what exists, what to build, naming conventions.
 
@@ -32,6 +32,17 @@ Working directory: {{CWD}}. Use absolute paths for all file operations.
 - **Termination Condition**: testable predicate for done
 - **Done Metric**: measurable completeness, aligned with evaluator's progress metric
 
+### `.descend/goal_weights.json` — axis priorities
+A JSON object with three numeric weights summing to 1.0:
+```json
+{"features": 0.8, "reliability": 0.1, "modularity": 0.1}
+```
+- Analyze the goal to determine which axes matter most
+- A feature-focused goal (e.g., "build X") → high features weight
+- A reliability goal (e.g., "add tests", "fix bugs") → high reliability weight
+- A refactoring goal (e.g., "clean up architecture") → high modularity weight
+- Mixed goals split weights proportionally
+
 ## Example
 
 Goal: "Add a REST API with CRUD for todos, with tests"
@@ -48,3 +59,8 @@ Goal: "Add a REST API with CRUD for todos, with tests"
 **terminator/goal.md**:
 > **Termination Condition**: All 4 CRUD endpoints return valid JSON with passing tests.
 > **Done Metric**: Tested endpoint count = 4.
+
+**goal_weights.json**:
+```json
+{"features": 0.70, "reliability": 0.20, "modularity": 0.10}
+```

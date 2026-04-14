@@ -32,9 +32,16 @@ On override, prepend to Summary: "**Override: [gate name]** — [one-sentence re
 - Reliability: Y/100
 - Modularity: Z/100
 
+## Weighted Analysis
+- Goal Weights: features=W1%, reliability=W2%, modularity=W3%
+- Weighted Score: S/100
+- Weighted Gaps: features=G1, reliability=G2, modularity=G3
+  (Higher gap = more effort needed on that axis, weighted by goal priority)
+
 ## Summary
 <2-4 sentences: (1) decision + cite gate if overridden,
- (2) weakest axis + one specific evidence item, (3) strongest axis + one specific evidence item,
+ (2) weighted score and which axis has the largest weighted gap,
+ (3) weakest axis + one specific evidence item,
  (4) overall diff quality vs evaluator goal.>
 
 ## Issues by Axis
@@ -58,14 +65,14 @@ On override, prepend to Summary: "**Override: [gate name]** — [one-sentence re
 
 ## Next Steps
 <3-5 imperative actions ordered by priority:
- (1) lowest-scoring axis, (2) symbolic findings, (3) remaining items.
+ (1) largest weighted gap axis, (2) symbolic findings, (3) remaining items.
  Each: one sentence — what to do and why.>
 ```
 
 ## Process
 
-1. Read scores, issues, symbolic results, and evaluator goal
+1. Read scores, issues, symbolic results, evaluator goal, and weighted analysis
 2. Apply gatekeeper overrides if any gate triggers
-3. Fill all template sections in order — Decision reflects overrides, Summary cites evidence for weakest/strongest axes
-4. Deduplicate per-axis issues into Remaining Work; derive Next Steps lowest-score-first
+3. Fill all template sections in order — Decision reflects overrides, Summary cites weighted gaps and evidence for highest-gap axis
+4. Deduplicate per-axis issues into Remaining Work; derive Next Steps largest-weighted-gap-first
 5. Write complete report to `.descend/evaluator/report.md`

@@ -1,21 +1,26 @@
 import type { CopilotClient } from "@github/copilot-sdk";
 import { approveAll } from "@github/copilot-sdk";
 import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync } from "fs";
-import type { AgentConfig, Implementor, ImplementorResult } from "../types.js";
+import type { AgentConfig, Implementor, ImplementorResult, GoalWeights } from "../types.js";
 import { DEFAULT_TIMEOUT } from "../types.js";
 import { gitCommitDescendOnly } from "../utils/git.js";
 import { attachLogger, log } from "../utils/logger.js";
 import { loadPrompt } from "../utils/prompt.js";
 import { withSession } from "../utils/session.js";
+import { parseGoalWeightsFile } from "../utils/state.js";
 
 interface SetupInput {
     goalPath: string;
 }
 
+interface SetupResult extends ImplementorResult {
+    goalWeights: GoalWeights;
+}
+
 class SetupImplementor implements Implementor<SetupInput> {
     name = "implementor:setup";
 
-    async run(client: CopilotClient, config: AgentConfig, ctx: SetupInput): Promise<ImplementorResult> {
+    async run(client: CopilotClient, config: AgentConfig, ctx: SetupInput): Promise<SetupResult> {
         log.setup("🎯 Reading goal.md and projecting per-agent goals...");
 
         if (existsSync(".descend")) {
@@ -59,9 +64,14 @@ class SetupImplementor implements Implementor<SetupInput> {
         );
 
         gitCommitDescendOnly(0, "setup: projected goal.md into per-agent goal files");
-        return { kinds: new Set(["Plan"]), feedback: "Setup complete — goal files projected", iterations: 1 };
+
+        // Read goal weights produced by LLM (or default to equal)
+        const goalWeights = parseGoalWeightsFile(".descend/goal_weights.json");
+        log.setup(`   Goal weights: features=${goalWeights.features.toFixed(2)}, reliability=${goalWeights.reliability.toFixed(2)}, modularity=${goalWeights.modularity.toFixed(2)}`);
+
+        return { kinds: new Set(["Plan"]), feedback: "Setup complete — goal files projected", iterations: 1, goalWeights };
     }
 }
 
 export const setupImplementor = new SetupImplementor();
-export type { SetupInput };
+export type { SetupInput, SetupResult };

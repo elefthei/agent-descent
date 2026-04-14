@@ -12,4 +12,4 @@ export { llmAsJudge } from "./llm-judge.js";
 // Context types
 export type { TerminatorContext, AgenticTerminatorInput } from "./terminator.js";
 export type { RadicalPlanInput } from "./radical-plan.js";
-export type { SetupInput } from "./setup.js";
+export type { SetupInput, SetupResult } from "./setup.js";
