@@ -13,7 +13,7 @@ import { reliabilityCampaign } from "./agents/campaigns/reliability.js";
 import { modularityCampaign } from "./agents/campaigns/modularity.js";
 import { gitCommitAll, gitRevertToBaseline, gitCommitDescendOnly, getHeadSha } from "./utils/git.js";
 import { log } from "./utils/logger.js";
-import { saveState, loadState, archiveIteration, consecutiveRejects, axisDeclining, isValidState, type DescentState, type IterationRecord } from "./utils/state.js";
+import { saveState, loadState, archiveIteration, consecutiveRejects, axisDeclining, isValidState, loadGoalWeights, type DescentState, type IterationRecord } from "./utils/state.js";
 import { readFileOrDefault } from "./utils/files.js";
 import { readFileSync } from "fs";
 import { DEFAULT_MODEL, getNextModel, isRateLimitError } from "./models.js";
@@ -320,21 +320,37 @@ const modularityCampaignRule: Rule<EscalationContext> = Gate.or(
 const radicalPlanRule: Rule<EscalationContext> = (ctx) =>
     consecutiveRejectsAbove(ctx.maxReject)(ctx);
 
+// Minimum goal weight to justify running a campaign
+const CAMPAIGN_WEIGHT_THRESHOLD = 0.15;
+
 // ── Escalation ──────────────────────────────────────────────
 
-async function runEscalation(ctx: LoopContext): Promise<void> {
+/** Run escalation campaigns. Returns true if any campaign executed. */
+async function runEscalation(ctx: LoopContext): Promise<boolean> {
     const escCtx: EscalationContext = {
         history: ctx.state.history,
         maxReject: ctx.options.maxReject ?? 3,
     };
+    const weights = loadGoalWeights();
 
-    const runReliability = await reliabilityCampaignRule(escCtx) === "SUCCESS";
-    const runModularity = await modularityCampaignRule(escCtx) === "SUCCESS";
+    let runReliability = await reliabilityCampaignRule(escCtx) === "SUCCESS";
+    let runModularity = await modularityCampaignRule(escCtx) === "SUCCESS";
     const runRadical = await radicalPlanRule(escCtx) === "SUCCESS";
 
-    if (!runReliability && !runModularity && !runRadical) return;
+    // Skip campaigns for axes with negligible goal weight
+    if (runReliability && weights.reliability < CAMPAIGN_WEIGHT_THRESHOLD) {
+        log.system(`   ⏭️ Skipping reliability campaign (weight ${(weights.reliability * 100).toFixed(0)}% < ${(CAMPAIGN_WEIGHT_THRESHOLD * 100).toFixed(0)}% threshold)`);
+        runReliability = false;
+    }
+    if (runModularity && weights.modularity < CAMPAIGN_WEIGHT_THRESHOLD) {
+        log.system(`   ⏭️ Skipping modularity campaign (weight ${(weights.modularity * 100).toFixed(0)}% < ${(CAMPAIGN_WEIGHT_THRESHOLD * 100).toFixed(0)}% threshold)`);
+        runModularity = false;
+    }
+
+    if (!runReliability && !runModularity && !runRadical) return false;
 
     log.system("\n🚨 Escalation triggered...");
+    let campaignsRan = false;
 
     if (runReliability) {
         log.system("   🛡️ Reliability campaign (scores declining or rejection streak)...");
@@ -343,6 +359,7 @@ async function runEscalation(ctx: LoopContext): Promise<void> {
         try {
             const r = await withRetry((cfg) => reliabilityCampaign.run(ctx.client, cfg), ctx.agents.implementor, ctx.maxRetries);
             log.system(`   ← [${[...r.kinds].join(", ")}] ${r.feedback}`);
+            campaignsRan = true;
         } catch (err) {
             throw new CampaignError("reliability", (err as Error).message);
         }
@@ -355,6 +372,7 @@ async function runEscalation(ctx: LoopContext): Promise<void> {
         try {
             const r = await withRetry((cfg) => modularityCampaign.run(ctx.client, cfg), ctx.agents.implementor, ctx.maxRetries);
             log.system(`   ← [${[...r.kinds].join(", ")}] ${r.feedback}`);
+            campaignsRan = true;
         } catch (err) {
             throw new CampaignError("modularity", (err as Error).message);
         }
@@ -379,6 +397,8 @@ async function runEscalation(ctx: LoopContext): Promise<void> {
             throw new CampaignError("radical-plan", (err as Error).message);
         }
     }
+
+    return campaignsRan;
 }
 
 async function runTerminatorPhase(
@@ -487,17 +507,25 @@ export async function descent(
 
         try {
             await runImplementorPhase(ctx);
-            const evalPhase = await runEvaluatorPhase(ctx, baseline);
+            let evalPhase = await runEvaluatorPhase(ctx, baseline);
             baseline = evalPhase.baseline;
 
+            let campaignsRan = false;
             try {
-                await runEscalation(ctx);
+                campaignsRan = await runEscalation(ctx);
             } catch (err) {
                 if (err instanceof CampaignError) {
                     log.system(`⚠️ ${err.message} — continuing to terminator`);
                 } else {
                     throw err;
                 }
+            }
+
+            // Re-evaluate after campaigns so the terminator sees updated scores
+            if (campaignsRan) {
+                log.system("🔍 Re-evaluating after campaigns...");
+                evalPhase = await runEvaluatorPhase(ctx, baseline);
+                baseline = evalPhase.baseline;
             }
 
             const result = await runTerminatorPhase(ctx, evalPhase.evalResult, iteration);
