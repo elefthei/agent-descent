@@ -17,6 +17,8 @@ export type {
 export type { Agent, Implementor, Evaluator, Validator, EvaluatorResult, EvalOrchestratorResult, GatekeeperResult, ImplementorKind, ImplementorResult, EvalResults, GoalWeights } from "./types.js";
 export { Gate, type Tri, type Rule } from "./rules.js";
 export { weightedScore, weightedGaps, DEFAULT_GOAL_WEIGHTS } from "./types.js";
+export { DescentError, CampaignError, IterationError } from "./errors.js";
+export type { CampaignType } from "./errors.js";
 export { llmAsJudge } from "./agents/llm-judge.js";
 
 // ── CLI ─────────────────────────────────────────────────────

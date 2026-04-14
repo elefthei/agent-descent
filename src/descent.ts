@@ -18,6 +18,7 @@ import { readFileOrDefault } from "./utils/files.js";
 import { readFileSync } from "fs";
 import { DEFAULT_MODEL, getNextModel, isRateLimitError } from "./models.js";
 import { checkPreviousError } from "./utils/check-error.js";
+import { CampaignError } from "./errors.js";
 import type { AgentConfig, EvalOrchestratorResult } from "./types.js";
 import { Gate, type Rule, type Tri } from "./rules.js";
 import type { GatekeeperResult } from "./types.js";
@@ -339,16 +340,24 @@ async function runEscalation(ctx: LoopContext): Promise<void> {
         log.system("   🛡️ Reliability campaign (scores declining or rejection streak)...");
         ctx.state.phase = "campaign:reliability";
         saveState(ctx.state);
-        const r = await withRetry((cfg) => reliabilityCampaign.run(ctx.client, cfg), ctx.agents.implementor, ctx.maxRetries);
-        log.system(`   ← [${[...r.kinds].join(", ")}] ${r.feedback}`);
+        try {
+            const r = await withRetry((cfg) => reliabilityCampaign.run(ctx.client, cfg), ctx.agents.implementor, ctx.maxRetries);
+            log.system(`   ← [${[...r.kinds].join(", ")}] ${r.feedback}`);
+        } catch (err) {
+            throw new CampaignError("reliability", (err as Error).message);
+        }
     }
 
     if (runModularity) {
         log.system("   🏗️ Modularity campaign (scores declining or rejection streak)...");
         ctx.state.phase = "campaign:modularity";
         saveState(ctx.state);
-        const r = await withRetry((cfg) => modularityCampaign.run(ctx.client, cfg), ctx.agents.implementor, ctx.maxRetries);
-        log.system(`   ← [${[...r.kinds].join(", ")}] ${r.feedback}`);
+        try {
+            const r = await withRetry((cfg) => modularityCampaign.run(ctx.client, cfg), ctx.agents.implementor, ctx.maxRetries);
+            log.system(`   ← [${[...r.kinds].join(", ")}] ${r.feedback}`);
+        } catch (err) {
+            throw new CampaignError("modularity", (err as Error).message);
+        }
     }
 
     if (runRadical && ctx.options.goalPath) {
@@ -363,8 +372,12 @@ async function runEscalation(ctx: LoopContext): Promise<void> {
         }).filter(Boolean);
 
         const goalContent = readFileSync(ctx.options.goalPath, "utf-8");
-        await withRetry((cfg) => radicalPlanImplementor.run(ctx.client, cfg, { goalContent, failureReports }), ctx.agents.evaluator, ctx.maxRetries);
-        log.system("   📋 RADICAL PLAN written");
+        try {
+            await withRetry((cfg) => radicalPlanImplementor.run(ctx.client, cfg, { goalContent, failureReports }), ctx.agents.evaluator, ctx.maxRetries);
+            log.system("   📋 RADICAL PLAN written");
+        } catch (err) {
+            throw new CampaignError("radical-plan", (err as Error).message);
+        }
     }
 }
 
@@ -477,7 +490,15 @@ export async function descent(
             const evalPhase = await runEvaluatorPhase(ctx, baseline);
             baseline = evalPhase.baseline;
 
-            await runEscalation(ctx);
+            try {
+                await runEscalation(ctx);
+            } catch (err) {
+                if (err instanceof CampaignError) {
+                    log.system(`⚠️ ${err.message} — continuing to terminator`);
+                } else {
+                    throw err;
+                }
+            }
 
             const result = await runTerminatorPhase(ctx, evalPhase.evalResult, iteration);
             if (result) return result;
