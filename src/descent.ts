@@ -6,7 +6,7 @@ import {
     planImplementor,
     execImplementor,
 } from "./agents/implementor.js";
-import { evaluatorOrchestrator } from "./agents/evaluator.js";
+import { evaluatorOrchestrator, symbolicEvaluator, buildEvalContext } from "./agents/evaluator.js";
 import { radicalPlanImplementor } from "./agents/radical-plan.js";
 import { terminatorValidator, agenticTerminator } from "./agents/terminator.js";
 import { reliabilityCampaign } from "./agents/campaigns/reliability.js";
@@ -18,7 +18,7 @@ import { readFileOrDefault } from "./utils/files.js";
 import { readFileSync } from "fs";
 import { DEFAULT_MODEL, getNextModel, isRateLimitError } from "./models.js";
 import { checkPreviousError } from "./utils/check-error.js";
-import { CampaignError } from "./errors.js";
+import { CampaignError, type CampaignType } from "./errors.js";
 import type { AgentConfig, EvalOrchestratorResult } from "./types.js";
 import { Gate, type Rule, type Tri } from "./rules.js";
 import type { GatekeeperResult } from "./types.js";
@@ -323,10 +323,38 @@ const radicalPlanRule: Rule<EscalationContext> = (ctx) =>
 // Minimum goal weight to justify running a campaign
 const CAMPAIGN_WEIGHT_THRESHOLD = 0.15;
 
+/**
+ * Run the symbolic evaluator after a campaign to verify it didn't break the build.
+ * Returns true if the campaign is safe to keep, false if it was reverted.
+ */
+async function verifyCampaign(
+    ctx: LoopContext,
+    campaignName: CampaignType,
+    baseline: string,
+): Promise<boolean> {
+    log.system(`   🔍 Verifying ${campaignName} campaign (symbolic check)...`);
+    try {
+        const evalCtx = buildEvalContext(baseline);
+        const result = await symbolicEvaluator.run(ctx.client, ctx.agents.evaluator, evalCtx);
+
+        if (result.feedback.includes("FAIL:")) {
+            log.system(`   ❌ ${campaignName} campaign broke the build — reverting`);
+            log.system(`      Findings: ${result.feedback}`);
+            gitRevertToBaseline(baseline);
+            return false;
+        }
+        log.system(`   ✅ ${campaignName} campaign verified`);
+        return true;
+    } catch (err) {
+        log.system(`   ⚠️ Verification failed for ${campaignName}: ${(err as Error).message} — keeping changes`);
+        return true; // On verification error, keep changes (don't revert blindly)
+    }
+}
+
 // ── Escalation ──────────────────────────────────────────────
 
 /** Run escalation campaigns. Returns true if any campaign executed. */
-async function runEscalation(ctx: LoopContext): Promise<boolean> {
+async function runEscalation(ctx: LoopContext, baseline: string): Promise<boolean> {
     const escCtx: EscalationContext = {
         history: ctx.state.history,
         maxReject: ctx.options.maxReject ?? 3,
@@ -359,7 +387,9 @@ async function runEscalation(ctx: LoopContext): Promise<boolean> {
         try {
             const r = await withRetry((cfg) => reliabilityCampaign.run(ctx.client, cfg), ctx.agents.implementor, ctx.maxRetries);
             log.system(`   ← [${[...r.kinds].join(", ")}] ${r.feedback}`);
-            campaignsRan = true;
+            if (await verifyCampaign(ctx, "reliability", baseline)) {
+                campaignsRan = true;
+            }
         } catch (err) {
             throw new CampaignError("reliability", (err as Error).message);
         }
@@ -372,7 +402,9 @@ async function runEscalation(ctx: LoopContext): Promise<boolean> {
         try {
             const r = await withRetry((cfg) => modularityCampaign.run(ctx.client, cfg), ctx.agents.implementor, ctx.maxRetries);
             log.system(`   ← [${[...r.kinds].join(", ")}] ${r.feedback}`);
-            campaignsRan = true;
+            if (await verifyCampaign(ctx, "modularity", baseline)) {
+                campaignsRan = true;
+            }
         } catch (err) {
             throw new CampaignError("modularity", (err as Error).message);
         }
@@ -512,7 +544,7 @@ export async function descent(
 
             let campaignsRan = false;
             try {
-                campaignsRan = await runEscalation(ctx);
+                campaignsRan = await runEscalation(ctx, baseline);
             } catch (err) {
                 if (err instanceof CampaignError) {
                     log.system(`⚠️ ${err.message} — continuing to terminator`);

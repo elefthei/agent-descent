@@ -323,3 +323,5 @@ class EvaluatorOrchestrator implements Evaluator<EvalInput> {
 
 export const evaluatorOrchestrator = new EvaluatorOrchestrator();
 export const approvalValidator = approvalValidatorInstance;
+export { symbolicEvaluator, buildEvalContext };
+export type { EvalContext };
