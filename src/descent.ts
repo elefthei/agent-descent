@@ -1,28 +1,32 @@
 import type { CopilotClient } from "@github/copilot-sdk";
 import { writeFileSync } from "fs";
-import { setupImplementor } from "./agents/setup.js";
 import {
+    setupImplementor,
     researchImplementor,
     planImplementor,
     execImplementor,
-} from "./agents/implementor.js";
-import { evaluatorOrchestrator, symbolicEvaluator, buildEvalContext } from "./agents/evaluator.js";
-import { radicalPlanImplementor } from "./agents/radical-plan.js";
-import { terminatorValidator, agenticTerminator } from "./agents/terminator.js";
-import { interventionValidator, type InterventionResult } from "./agents/intervention.js";
-import { reliabilityCampaign } from "./agents/campaigns/reliability.js";
-import { modularityCampaign } from "./agents/campaigns/modularity.js";
+    evaluatorOrchestrator,
+    runSymbolicCheck,
+    terminatorValidator,
+    agenticTerminator,
+    interventionValidator,
+    radicalPlanImplementor,
+    reliabilityCampaign,
+    modularityCampaign,
+    type InterventionResult,
+} from "./agents/index.js";
 import { gitCommitAll, gitRevertToBaseline, gitCommitDescendOnly, getHeadSha, getGitLog } from "./utils/git.js";
 import { log } from "./utils/logger.js";
-import { saveState, loadState, archiveIteration, consecutiveRejects, axisDeclining, isValidState, loadGoalWeights, type DescentState, type IterationRecord, type InterventionRecord } from "./utils/state.js";
+import { saveState, loadState, archiveIteration, consecutiveRejects, isValidState, loadGoalWeights, type DescentState, type IterationRecord, type InterventionRecord } from "./utils/state.js";
 import { readFileOrDefault } from "./utils/files.js";
 import { readFileSync } from "fs";
-import { DEFAULT_MODEL, getNextModel, isRateLimitError } from "./models.js";
+import { DEFAULT_MODEL } from "./models.js";
 import { checkPreviousError } from "./utils/check-error.js";
+import { withRetry } from "./utils/retry.js";
 import { CampaignError, type CampaignType } from "./errors.js";
-import type { AgentConfig, EvalOrchestratorResult } from "./types.js";
-import { Gate, type Rule, type Tri } from "./rules.js";
-import type { GatekeeperResult } from "./types.js";
+import { checkStagnation } from "./rules/stagnation.js";
+import { reliabilityCampaignRule, modularityCampaignRule, radicalPlanRule, CAMPAIGN_WEIGHT_THRESHOLD, type EscalationContext } from "./rules/campaigns.js";
+import type { AgentConfig, EvalOrchestratorResult, GatekeeperResult } from "./types.js";
 
 // ── Public types ────────────────────────────────────────────
 
@@ -246,86 +250,6 @@ async function runEvaluatorPhase(
     return { evalResult, baseline };
 }
 
-// ── Stagnation Rules ─────────────────────────────────────────
-// SUCCESS = stagnation detected, CONTINUE = not enough data, FAILURE = healthy
-
-const threeConsecutiveRejects: Rule<IterationRecord[]> = Gate.lift((history) => {
-    if (history.length < 3) return "CONTINUE";
-    return Gate.fromBool(history.slice(-3).every((r) => r.decision === "reject"));
-});
-
-const threeConsecutiveErrors: Rule<IterationRecord[]> = Gate.lift((history) => {
-    if (history.length < 3) return "CONTINUE";
-    return Gate.fromBool(history.slice(-3).every((r) => r.decision === "error"));
-});
-
-const scorePlateau: Rule<IterationRecord[]> = Gate.lift((history) => {
-    if (history.length < 3) return "CONTINUE";
-    const maxScores = history.slice(-3)
-        .map((r) => r.scores ? Math.max(r.scores.features, r.scores.reliability, r.scores.modularity) : null)
-        .filter((s): s is number => s != null);
-    if (maxScores.length < 3) return "CONTINUE";
-    return Gate.fromBool(Math.max(...maxScores) - Math.min(...maxScores) < 5);
-});
-
-const scoreDivergence: Rule<IterationRecord[]> = Gate.lift((history) => {
-    if (history.length < 3) return "CONTINUE";
-    const maxScores = history.slice(-3)
-        .map((r) => r.scores ? Math.max(r.scores.features, r.scores.reliability, r.scores.modularity) : null)
-        .filter((s): s is number => s != null);
-    if (maxScores.length < 3) return "CONTINUE";
-    return Gate.fromBool(maxScores[0]! > maxScores[1]! && maxScores[1]! > maxScores[2]!);
-});
-
-const stagnationRule: Rule<IterationRecord[]> = Gate.or(
-    threeConsecutiveRejects,
-    threeConsecutiveErrors,
-    scorePlateau,
-    scoreDivergence,
-);
-
-async function checkStagnation(history: IterationRecord[]): Promise<string | null> {
-    const result = await stagnationRule(history);
-    if (result !== "SUCCESS") return null;
-
-    // Identify which sub-rule fired for the warning message
-    if (await threeConsecutiveRejects(history) === "SUCCESS") return "3 consecutive rejections — implementor may be stuck";
-    if (await threeConsecutiveErrors(history) === "SUCCESS") return "3 consecutive errors — possible systemic issue";
-    if (await scorePlateau(history) === "SUCCESS") return "score plateau detected (<5-point spread over last 3 iterations)";
-    if (await scoreDivergence(history) === "SUCCESS") return "score divergence detected (decreasing over last 3 iterations)";
-    return "stagnation detected";
-}
-
-// ── Campaign Gate Rules ──────────────────────────────────────
-// SUCCESS = trigger campaign, CONTINUE = skip, FAILURE = error
-
-type EscalationContext = { history: IterationRecord[]; maxReject: number };
-
-const consecutiveRejectsAbove = (n: number): Rule<EscalationContext> =>
-    Gate.lift((ctx) => Gate.fromBool(consecutiveRejects(ctx.history) >= n));
-
-const reliabilityDeclining: Rule<EscalationContext> = Gate.lift((ctx) =>
-    Gate.fromBool(axisDeclining(ctx.history, "reliability", 2)));
-
-const modularityDeclining: Rule<EscalationContext> = Gate.lift((ctx) =>
-    Gate.fromBool(axisDeclining(ctx.history, "modularity", 2)));
-
-const reliabilityCampaignRule: Rule<EscalationContext> = Gate.or(
-    (ctx) => consecutiveRejectsAbove(ctx.maxReject)(ctx),
-    reliabilityDeclining,
-);
-
-const modularityCampaignRule: Rule<EscalationContext> = Gate.or(
-    (ctx) => consecutiveRejectsAbove(ctx.maxReject)(ctx),
-    modularityDeclining,
-);
-
-const radicalPlanRule: Rule<EscalationContext> = (ctx) =>
-    consecutiveRejectsAbove(ctx.maxReject)(ctx);
-
-// Minimum goal weight to justify running a campaign
-const CAMPAIGN_WEIGHT_THRESHOLD = 0.15;
-
 /**
  * Run the symbolic evaluator after a campaign to verify it didn't break the build.
  * Returns true if the campaign is safe to keep, false if it was reverted.
@@ -337,8 +261,7 @@ async function verifyCampaign(
 ): Promise<boolean> {
     log.system(`   🔍 Verifying ${campaignName} campaign (symbolic check)...`);
     try {
-        const evalCtx = buildEvalContext(baseline);
-        const result = await symbolicEvaluator.run(ctx.client, ctx.agents.evaluator, evalCtx);
+        const result = await runSymbolicCheck(ctx.client, ctx.agents.evaluator, baseline);
 
         if (result.feedback.includes("FAIL:")) {
             log.system(`   ❌ ${campaignName} campaign broke the build — reverting`);
@@ -350,7 +273,7 @@ async function verifyCampaign(
         return true;
     } catch (err) {
         log.system(`   ⚠️ Verification failed for ${campaignName}: ${(err as Error).message} — keeping changes`);
-        return true; // On verification error, keep changes (don't revert blindly)
+        return true;
     }
 }
 
@@ -642,50 +565,4 @@ export async function descent(
     saveState(state);
     log.system(`\n⚠️ Reached maximum iterations (${maxIterations}). Stopping.`);
     return { iterations: maxIterations, converged: false, reason: "max iterations reached" };
-}
-
-// ── internal ────────────────────────────────────────────────
-
-const RETRY_BACKOFF_MS = 30_000;
-
-function sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function formatError(err: Error): string {
-    const msg = err.message;
-    if (msg.includes("Timeout") && msg.includes("waiting for session.idle")) {
-        return "⏱️ Agent session timed out. Try --timeout M for longer sessions.";
-    }
-    if (msg.includes("Failed to get response from the AI model")) {
-        return "🌐 AI model API error (rate limit or outage). Will retry after backoff.";
-    }
-    return msg;
-}
-
-async function withRetry<T>(fn: (config: AgentConfig) => Promise<T>, config: AgentConfig, retries: number): Promise<T> {
-    let currentModel = config.model;
-    for (let attempt = 0; attempt <= retries; attempt++) {
-        try {
-            return await fn({ ...config, model: currentModel });
-        } catch (err) {
-            if (attempt === retries) throw err;
-            const friendly = formatError(err as Error);
-            log.system(`⚠️ Attempt ${attempt + 1} failed: ${friendly}`);
-
-            if (isRateLimitError(err as Error)) {
-                const next = getNextModel(currentModel);
-                if (next) {
-                    log.system(`   🔄 Falling back: ${currentModel} → ${next}`);
-                    currentModel = next;
-                } else {
-                    log.system(`   No more fallback models available.`);
-                }
-            }
-
-            log.system(`   Waiting ${RETRY_BACKOFF_MS / 1000}s before retry...`);
-            await sleep(RETRY_BACKOFF_MS);
-        }
-    }
-    throw new Error("Unreachable");
 }

@@ -323,5 +323,16 @@ class EvaluatorOrchestrator implements Evaluator<EvalInput> {
 
 export const evaluatorOrchestrator = new EvaluatorOrchestrator();
 export const approvalValidator = approvalValidatorInstance;
-export { symbolicEvaluator, buildEvalContext };
-export type { EvalContext };
+
+/**
+ * Run a quick symbolic check (build/test) against the current working tree.
+ * Returns the symbolic evaluator result. Used for post-campaign verification.
+ */
+export async function runSymbolicCheck(
+    client: CopilotClient,
+    config: AgentConfig,
+    baselineSha?: string,
+): Promise<EvaluatorResult> {
+    const evalCtx = buildEvalContext(baselineSha);
+    return symbolicEvaluator.run(client, config, evalCtx);
+}
