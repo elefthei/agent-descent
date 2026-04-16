@@ -14,6 +14,10 @@ export function getHeadSha(): string {
     return execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf-8" }).trim();
 }
 
+export function getGitLog(maxCount: number = 20): string {
+    return execFileSync("git", ["log", "--oneline", `-${maxCount}`], { encoding: "utf-8" }).trim();
+}
+
 export function gitCommitAll(iteration: number, summary: string): void {
     execFileSync("git", ["add", "-A"]);
     execFileSync("git", ["commit", "-m", `iteration ${iteration}: ${summary.slice(0, 200)}`]);

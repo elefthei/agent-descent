@@ -8,6 +8,8 @@ export { reliabilityCampaign } from "./campaigns/reliability.js";
 export { modularityCampaign } from "./campaigns/modularity.js";
 export { setupImplementor } from "./setup.js";
 export { llmAsJudge } from "./llm-judge.js";
+export { interventionValidator } from "./intervention.js";
+export type { InterventionContext, InterventionResult } from "./intervention.js";
 
 // Context types
 export type { TerminatorContext, AgenticTerminatorInput } from "./terminator.js";

@@ -31,12 +31,20 @@ export interface IterationRecord {
     summary: string;
 }
 
+export interface InterventionRecord {
+    iteration: number;
+    revertedTo: string;
+    reason: string;
+    triggeredBy: "rule" | "llm";
+}
+
 export interface DescentState {
     iteration: number;
     baselineCommit: string;
     phase: string;
     history: IterationRecord[];
     goalWeights?: GoalWeights;
+    interventions?: InterventionRecord[];
 }
 
 const STATE_PATH = ".descend/state.json";

@@ -9,11 +9,12 @@ import {
 import { evaluatorOrchestrator, symbolicEvaluator, buildEvalContext } from "./agents/evaluator.js";
 import { radicalPlanImplementor } from "./agents/radical-plan.js";
 import { terminatorValidator, agenticTerminator } from "./agents/terminator.js";
+import { interventionValidator, type InterventionResult } from "./agents/intervention.js";
 import { reliabilityCampaign } from "./agents/campaigns/reliability.js";
 import { modularityCampaign } from "./agents/campaigns/modularity.js";
-import { gitCommitAll, gitRevertToBaseline, gitCommitDescendOnly, getHeadSha } from "./utils/git.js";
+import { gitCommitAll, gitRevertToBaseline, gitCommitDescendOnly, getHeadSha, getGitLog } from "./utils/git.js";
 import { log } from "./utils/logger.js";
-import { saveState, loadState, archiveIteration, consecutiveRejects, axisDeclining, isValidState, loadGoalWeights, type DescentState, type IterationRecord } from "./utils/state.js";
+import { saveState, loadState, archiveIteration, consecutiveRejects, axisDeclining, isValidState, loadGoalWeights, type DescentState, type IterationRecord, type InterventionRecord } from "./utils/state.js";
 import { readFileOrDefault } from "./utils/files.js";
 import { readFileSync } from "fs";
 import { DEFAULT_MODEL, getNextModel, isRateLimitError } from "./models.js";
@@ -50,6 +51,8 @@ export interface DescentOptions {
     maxReject?: number;
     skipResearch?: boolean;
     skipPlan?: boolean;
+    /** Number of iterations to observe for cascading failure detection (0 = disabled). Default: 3 */
+    historyObserve?: number;
 }
 
 export interface DescentResult {
@@ -433,6 +436,35 @@ async function runEscalation(ctx: LoopContext, baseline: string): Promise<boolea
     return campaignsRan;
 }
 
+// ── Intervention ────────────────────────────────────────────
+
+async function runInterventionCheck(
+    ctx: LoopContext,
+    baseline: string,
+    window: number,
+): Promise<InterventionResult | null> {
+    log.system("🔍 Intervention check — scanning for cascading failures...");
+
+    const gitLog = getGitLog(window * 3);
+    const interventionCtx = {
+        history: ctx.state.history,
+        window,
+        gitLog,
+    };
+
+    try {
+        const result = await interventionValidator.run(ctx.client, ctx.agents.evaluator, interventionCtx);
+        if (result.result === "SUCCESS" && result.revertTo) {
+            return result;
+        }
+        log.system(`   Intervention: ${result.result} — ${result.feedback}`);
+        return null;
+    } catch (err) {
+        log.system(`   ⚠️ Intervention check failed: ${(err as Error).message}`);
+        return null;
+    }
+}
+
 async function runTerminatorPhase(
     ctx: LoopContext,
     evalResult: EvalOrchestratorResult,
@@ -541,6 +573,45 @@ export async function descent(
             await runImplementorPhase(ctx);
             let evalPhase = await runEvaluatorPhase(ctx, baseline);
             baseline = evalPhase.baseline;
+
+            // Intervention check — detect cascading failures before escalation
+            const historyObserve = opts.historyObserve ?? 3;
+            if (historyObserve > 0 && state.history.length >= historyObserve) {
+                const intervention = await runInterventionCheck(ctx, baseline, historyObserve);
+                if (intervention) {
+                    // Intervention fired — revert, record, restart this iteration
+                    log.system(`🚨 INTERVENTION: ${intervention.feedback}`);
+                    log.system(`   Reverting to ${intervention.revertTo}`);
+                    gitRevertToBaseline(intervention.revertTo!);
+                    baseline = intervention.revertTo!;
+                    state.baselineCommit = baseline;
+
+                    if (!state.interventions) state.interventions = [];
+                    state.interventions.push({
+                        iteration,
+                        revertedTo: intervention.revertTo!,
+                        reason: intervention.feedback,
+                        triggeredBy: "llm",
+                    });
+
+                    // Overwrite evaluator report so implementor knows context changed
+                    writeFileSync(".descend/evaluator/report.md", [
+                        "# Intervention — Reverted",
+                        "",
+                        `Reverted to commit ${intervention.revertTo}.`,
+                        "",
+                        `**Reason**: ${intervention.feedback}`,
+                        "",
+                        "The previous iterations showed a cascading failure pattern.",
+                        "Start fresh from this baseline with a different strategy.",
+                    ].join("\n"));
+
+                    archiveIteration(iteration);
+                    state.phase = "intervention";
+                    saveState(state);
+                    continue; // Restart this iteration from implementor
+                }
+            }
 
             let campaignsRan = false;
             try {

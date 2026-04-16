@@ -30,6 +30,7 @@ interface CliArgs {
     maxIterations: number;
     maxReject: number;
     timeout: number;
+    historyObserve: number;
     implementorModel: string;
     evaluatorModel: string;
     terminatorModel: string;
@@ -43,6 +44,7 @@ function parseArgs(): CliArgs {
     let maxIterations = 10;
     let maxReject = 3;
     let timeout = 60;
+    let historyObserve = 3;
     let implementorModel = DEFAULT_MODEL;
     let evaluatorModel = DEFAULT_MODEL;
     let terminatorModel = DEFAULT_MODEL;
@@ -57,6 +59,8 @@ function parseArgs(): CliArgs {
             maxReject = parseInt(args[++i]!, 10);
         } else if (arg === "--timeout" && args[i + 1]) {
             timeout = parseInt(args[++i]!, 10);
+        } else if (arg === "--history-observe" && args[i + 1]) {
+            historyObserve = parseInt(args[++i]!, 10);
         } else if (arg === "--log" && args[i + 1]) {
             logFile = args[++i]!;
         } else if (arg === "--implementor-model" && args[i + 1]) {
@@ -72,7 +76,7 @@ function parseArgs(): CliArgs {
 
     if (!goalPath) {
         console.error(
-            "Usage: agent-descent <goal.md> [--fresh] [--max-iterations N] [--max-reject N] [--timeout MINUTES] [--log FILE] [--implementor-model M] [--evaluator-model M] [--terminator-model M]",
+            "Usage: agent-descent <goal.md> [--fresh] [--max-iterations N] [--max-reject N] [--timeout MINUTES] [--history-observe N] [--log FILE] [--implementor-model M] [--evaluator-model M] [--terminator-model M]",
         );
         console.error(`\nSupported models: ${[...SUPPORTED_MODELS].join(", ")}`);
         process.exit(1);
@@ -97,6 +101,7 @@ function parseArgs(): CliArgs {
         maxIterations,
         maxReject,
         timeout,
+        historyObserve,
         implementorModel,
         evaluatorModel,
         terminatorModel,
@@ -144,6 +149,7 @@ async function main() {
             goalPath: args.goalPath,
             maxIterations: args.maxIterations,
             maxReject: args.maxReject,
+            historyObserve: args.historyObserve,
         });
 
         log.system(`\n✨ Agent-Descent complete. ${result.iterations} iteration(s), converged=${result.converged}`);
