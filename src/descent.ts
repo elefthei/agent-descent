@@ -351,6 +351,7 @@ async function runEscalation(ctx: LoopContext, baseline: string): Promise<boolea
         try {
             await withRetry((cfg) => radicalPlanImplementor.run(ctx.client, cfg, { goalContent, failureReports }), ctx.agents.evaluator, ctx.maxRetries);
             log.system("   📋 RADICAL PLAN written");
+            campaignsRan = true;
         } catch (err) {
             throw new CampaignError("radical-plan", (err as Error).message);
         }
