@@ -1,10 +1,10 @@
 import { CopilotClient } from "@github/copilot-sdk";
 import { resolve } from "path";
-import { setup, descent } from "./descent.js";
+import { setup, descent, recover } from "./descent.js";
 import { log, setLogFile } from "./utils/logger.js";
 import { DEFAULT_MODEL, SUPPORTED_MODELS } from "./models.js";
 
-export { setup, descent } from "./descent.js";
+export { setup, descent, recover } from "./descent.js";
 export { DEFAULT_MODEL, MODEL_CHAIN, getNextModel } from "./models.js";
 export type {
     AgentConfig,
@@ -27,6 +27,7 @@ interface CliArgs {
     goalPath: string;
     logFile: string | null;
     fresh: boolean;
+    recover: boolean;
     maxIterations: number;
     maxReject: number;
     timeout: number;
@@ -41,6 +42,7 @@ function parseArgs(): CliArgs {
     let goalPath = "";
     let logFile: string | null = null;
     let fresh = false;
+    let recover = false;
     let maxIterations = 10;
     let maxReject = 3;
     let timeout = 60;
@@ -53,6 +55,8 @@ function parseArgs(): CliArgs {
         const arg = args[i]!;
         if (arg === "--fresh") {
             fresh = true;
+        } else if (arg === "--recover") {
+            recover = true;
         } else if (arg === "--max-iterations" && args[i + 1]) {
             maxIterations = parseInt(args[++i]!, 10);
         } else if (arg === "--max-reject" && args[i + 1]) {
@@ -76,7 +80,7 @@ function parseArgs(): CliArgs {
 
     if (!goalPath) {
         console.error(
-            "Usage: agent-descent <goal.md> [--fresh] [--max-iterations N] [--max-reject N] [--timeout MINUTES] [--history-observe N] [--log FILE] [--implementor-model M] [--evaluator-model M] [--terminator-model M]",
+            "Usage: agent-descent <goal.md> [--fresh] [--recover] [--max-iterations N] [--max-reject N] [--timeout MINUTES] [--history-observe N] [--log FILE] [--implementor-model M] [--evaluator-model M] [--terminator-model M]",
         );
         console.error(`\nSupported models: ${[...SUPPORTED_MODELS].join(", ")}`);
         process.exit(1);
@@ -98,6 +102,7 @@ function parseArgs(): CliArgs {
         goalPath: resolve(goalPath),
         logFile,
         fresh,
+        recover,
         maxIterations,
         maxReject,
         timeout,
@@ -153,6 +158,33 @@ async function main() {
         });
 
         log.system(`\n✨ Agent-Descent complete. ${result.iterations} iteration(s), converged=${result.converged}`);
+
+        // Recovery mode: if descent failed and --recover is set, analyze and retry
+        if (!result.converged && args.recover) {
+            log.system(`\n🔬 Descent failed — entering recovery mode...`);
+            await recover(client, {
+                model: args.implementorModel,
+                reasoningEffort: "high",
+                timeout: timeoutMs,
+            });
+
+            log.system("\n🚀 Re-running descent with recovery plan...");
+            const agents2 = await setup(client, args.goalPath, {
+                implementorModel: args.implementorModel,
+                evaluatorModel: args.evaluatorModel,
+                terminatorModel: args.terminatorModel,
+                timeout: timeoutMs,
+            });
+
+            const result2 = await descent(client, agents2, {
+                goalPath: args.goalPath,
+                maxIterations: args.maxIterations,
+                maxReject: args.maxReject,
+                historyObserve: args.historyObserve,
+            });
+
+            log.system(`\n✨ Recovery run complete. ${result2.iterations} iteration(s), converged=${result2.converged}`);
+        }
     } finally {
         await client.stop();
     }

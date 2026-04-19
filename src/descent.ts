@@ -15,6 +15,7 @@ import {
     modularityCampaign,
     type InterventionResult,
 } from "./agents/index.js";
+import { recoveryResearcher } from "./agents/recovery.js";
 import { gitCommitAll, gitRevertToBaseline, gitCommitDescendOnly, getHeadSha, getGitLog } from "./utils/git.js";
 import { log } from "./utils/logger.js";
 import { saveState, loadState, archiveIteration, consecutiveRejects, isValidState, loadGoalWeights, type DescentState, type IterationRecord, type InterventionRecord } from "./utils/state.js";
@@ -111,6 +112,31 @@ export async function setup(
     }
 
     return agents;
+}
+
+// ── recover ─────────────────────────────────────────────────
+
+/**
+ * Run recovery analysis after a failed descent loop.
+ * The recovery agent analyzes .descend/ artifacts and writes a recovery
+ * plan to .descend/evaluator/report.md. Then resets state for a fresh run.
+ */
+export async function recover(
+    client: CopilotClient,
+    config: AgentConfig,
+): Promise<void> {
+    log.system("\n🔬 Recovery mode — analyzing failure...");
+    await recoveryResearcher.run(client, config);
+
+    // Reset state for fresh run, preserving the recovery plan in report.md
+    const state = loadState();
+    if (state) {
+        state.iteration = 0;
+        state.phase = "init";
+        state.baselineCommit = getHeadSha();
+        saveState(state);
+        log.system(`🔄 State reset for recovery run (kept ${state.history.length} history records)`);
+    }
 }
 
 // ── Phase helpers ───────────────────────────────────────────

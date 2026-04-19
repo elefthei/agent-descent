@@ -9,6 +9,7 @@ export { modularityCampaign } from "./campaigns/modularity.js";
 export { setupImplementor } from "./setup.js";
 export { llmAsJudge } from "./llm-judge.js";
 export { interventionValidator } from "./intervention.js";
+export { recoveryResearcher } from "./recovery.js";
 
 // Context types
 export type { InterventionContext, InterventionResult } from "./intervention.js";
