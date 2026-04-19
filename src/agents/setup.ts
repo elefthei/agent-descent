@@ -8,9 +8,11 @@ import { attachLogger, log } from "../utils/logger.js";
 import { loadPrompt } from "../utils/prompt.js";
 import { withSession } from "../utils/session.js";
 import { parseGoalWeightsFile } from "../utils/state.js";
+import { readFileOrDefault } from "../utils/files.js";
 
 interface SetupInput {
     goalPath: string;
+    feedbackPath?: string;
 }
 
 interface SetupResult extends ImplementorResult {
@@ -44,12 +46,25 @@ class SetupImplementor implements Implementor<SetupInput> {
             streaming: true,
         }, async (session) => {
             attachLogger(session, this.name);
+
+            const promptParts = [
+                "Use absolute paths for all file operations (view, glob, grep, create, edit).",
+                "", "## Goal File Contents", "", goalContent, "",
+            ];
+
+            // Include user feedback if available
+            if (ctx.feedbackPath) {
+                const feedback = readFileOrDefault(ctx.feedbackPath, "");
+                if (feedback) {
+                    promptParts.push("## User Feedback (consider when projecting goals and setting weights)",
+                        feedback, "");
+                }
+            }
+
+            promptParts.push("Project this into the three goal files and goal_weights.json now.");
+
             await session.sendAndWait({
-                prompt: [
-                    "Use absolute paths for all file operations (view, glob, grep, create, edit).",
-                    "", "## Goal File Contents", "", goalContent, "",
-                    "Project this into the three goal files now.",
-                ].join("\n"),
+                prompt: promptParts.join("\n"),
             }, config.timeout ?? DEFAULT_TIMEOUT);
         });
 

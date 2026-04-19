@@ -16,6 +16,7 @@ import { DEFAULT_MODEL, SUPPORTED_MODELS } from "./models.js";
 interface CliArgs {
     goalPath: string;
     logFile: string | null;
+    feedbackPath: string | null;
     fresh: boolean;
     recover: boolean;
     maxIterations: number;
@@ -31,6 +32,7 @@ function parseArgs(): CliArgs {
     const args = process.argv.slice(2);
     let goalPath = "";
     let logFile: string | null = null;
+    let feedbackPath: string | null = null;
     let fresh = false;
     let recover = false;
     let maxIterations = 10;
@@ -57,6 +59,8 @@ function parseArgs(): CliArgs {
             historyObserve = parseInt(args[++i]!, 10);
         } else if (arg === "--log" && args[i + 1]) {
             logFile = args[++i]!;
+        } else if (arg === "--feedback" && args[i + 1]) {
+            feedbackPath = args[++i]!;
         } else if (arg === "--implementor-model" && args[i + 1]) {
             implementorModel = args[++i]!;
         } else if (arg === "--evaluator-model" && args[i + 1]) {
@@ -70,7 +74,7 @@ function parseArgs(): CliArgs {
 
     if (!goalPath) {
         console.error(
-            "Usage: agent-descent <goal.md> [--fresh] [--recover] [--max-iterations N] [--max-reject N] [--timeout MINUTES] [--history-observe N] [--log FILE] [--implementor-model M] [--evaluator-model M] [--terminator-model M]",
+            "Usage: agent-descent <goal.md> [--fresh] [--recover] [--feedback FILE] [--max-iterations N] [--max-reject N] [--timeout MINUTES] [--history-observe N] [--log FILE] [--implementor-model M] [--evaluator-model M] [--terminator-model M]",
         );
         console.error(`\nSupported models: ${[...SUPPORTED_MODELS].join(", ")}`);
         process.exit(1);
@@ -91,6 +95,7 @@ function parseArgs(): CliArgs {
     return {
         goalPath: resolve(goalPath),
         logFile,
+        feedbackPath: feedbackPath ? resolve(feedbackPath) : null,
         fresh,
         recover,
         maxIterations,
@@ -129,6 +134,7 @@ async function main() {
     log.system(`   Max iterations: ${args.maxIterations}`);
     log.system(`   Timeout: ${args.timeout} minutes per agent session`);
     if (args.logFile) log.system(`   Log: ${resolve(args.logFile)}`);
+    if (args.feedbackPath) log.system(`   Feedback: ${args.feedbackPath}`);
 
     const client = new CopilotClient({ logLevel: "none" });
     await client.start();
@@ -139,6 +145,7 @@ async function main() {
             evaluatorModel: args.evaluatorModel,
             terminatorModel: args.terminatorModel,
             timeout: timeoutMs,
+            feedbackPath: args.feedbackPath ?? undefined,
         });
 
         const result = await descent(client, agents, {
@@ -146,6 +153,7 @@ async function main() {
             maxIterations: args.maxIterations,
             maxReject: args.maxReject,
             historyObserve: args.historyObserve,
+            feedbackPath: args.feedbackPath ?? undefined,
         });
 
         log.system(`\n✨ Agent-Descent complete. ${result.iterations} iteration(s), converged=${result.converged}`);
@@ -165,6 +173,7 @@ async function main() {
                 evaluatorModel: args.evaluatorModel,
                 terminatorModel: args.terminatorModel,
                 timeout: timeoutMs,
+                feedbackPath: args.feedbackPath ?? undefined,
             });
 
             const result2 = await descent(client, agents2, {
@@ -172,6 +181,7 @@ async function main() {
                 maxIterations: args.maxIterations,
                 maxReject: args.maxReject,
                 historyObserve: args.historyObserve,
+                feedbackPath: args.feedbackPath ?? undefined,
             });
 
             log.system(`\n✨ Recovery run complete. ${result2.iterations} iteration(s), converged=${result2.converged}`);

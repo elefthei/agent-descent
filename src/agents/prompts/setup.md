@@ -10,6 +10,7 @@ Working directory: {{CWD}}. Use absolute paths for all file operations.
 - MUST NOT spawn subagents or use `task` tool
 - Each agent only sees its own file — include all necessary context in each
 - Infer concrete, testable metrics when the goal omits them
+- If user feedback is provided, incorporate it when projecting goals and setting weights
 
 ## Budget
 

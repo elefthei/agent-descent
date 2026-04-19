@@ -42,6 +42,7 @@ export interface SetupOptions {
     evaluatorModel?: string;
     terminatorModel?: string;
     timeout?: number;
+    feedbackPath?: string;
 }
 
 export interface DescentOptions {
@@ -53,6 +54,8 @@ export interface DescentOptions {
     skipPlan?: boolean;
     /** Number of iterations to observe for cascading failure detection (0 = disabled). Default: 3 */
     historyObserve?: number;
+    /** Path to a live feedback file. Re-read each iteration. */
+    feedbackPath?: string;
 }
 
 export interface DescentResult {
@@ -97,7 +100,7 @@ export async function setup(
         reasoningEffort: "high",
         timeout: options?.timeout,
     };
-    const setupResult = await setupImplementor.run(client, config, { goalPath });
+    const setupResult = await setupImplementor.run(client, config, { goalPath, feedbackPath: options?.feedbackPath });
 
     // Store goal weights in state for downstream agents
     const initState = loadState();
@@ -187,7 +190,7 @@ async function runImplementorPhase(ctx: LoopContext): Promise<void> {
     // Check predecessor error
     if (await checkPreviousError(ctx.client, ctx.agents.evaluator, ".descend/evaluator/report.md")) {
         log.system("⚠️ Evaluator report contains system error — re-running evaluator");
-        await withRetry((cfg) => evaluatorOrchestrator.run(ctx.client, cfg, { baselineSha: ctx.state.baselineCommit }), ctx.agents.evaluator, ctx.maxRetries);
+        await withRetry((cfg) => evaluatorOrchestrator.run(ctx.client, cfg, { baselineSha: ctx.state.baselineCommit, feedbackPath: ctx.options.feedbackPath }), ctx.agents.evaluator, ctx.maxRetries);
     }
 
     if (!ctx.options.skipResearch) {
@@ -229,7 +232,7 @@ async function runEvaluatorPhase(
 
     log.system("🔍 Evaluator: Reviewing changes...");
     const evalResult = await withRetry(
-        (cfg) => evaluatorOrchestrator.run(ctx.client, cfg, { baselineSha: baseline }),
+        (cfg) => evaluatorOrchestrator.run(ctx.client, cfg, { baselineSha: baseline, feedbackPath: ctx.options.feedbackPath }),
         ctx.agents.evaluator,
         ctx.agents.evaluator.retryBudget ?? ctx.maxRetries,
     );
@@ -312,7 +315,7 @@ async function runTerminatorPhase(
     if (await checkPreviousError(ctx.client, ctx.agents.evaluator, ".descend/evaluator/report.md")) {
         log.system("⚠️ Evaluator report contains system error — re-running evaluator");
         const retryEval = await withRetry(
-            (cfg) => evaluatorOrchestrator.run(ctx.client, cfg, { baselineSha: ctx.state.baselineCommit }),
+            (cfg) => evaluatorOrchestrator.run(ctx.client, cfg, { baselineSha: ctx.state.baselineCommit, feedbackPath: ctx.options.feedbackPath }),
             ctx.agents.evaluator, ctx.maxRetries,
         );
         Object.assign(evalResult, retryEval);

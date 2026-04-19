@@ -20,6 +20,13 @@ If any gate triggers, final decision MUST be REJECTED:
 
 On override, prepend to Summary: "**Override: [gate name]** — [one-sentence reason]."
 
+## User Feedback
+
+If a "User Feedback" section is provided in your input, incorporate it prominently:
+- Reference user feedback in the Summary section
+- Add a dedicated "## User Feedback" section in the report echoing their guidance
+- Prioritize user feedback in Next Steps ordering
+
 ## Report Template
 
 ```markdown

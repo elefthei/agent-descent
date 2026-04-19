@@ -18,6 +18,7 @@ import { loadGoalWeights } from "../utils/state.js";
 
 interface EvalInput {
     baselineSha?: string;
+    feedbackPath?: string;
 }
 
 interface EvalContext {
@@ -147,6 +148,7 @@ interface SynthContext {
     goalWeights: GoalWeights;
     wScore: number;
     wGaps: GoalWeights;
+    feedbackPath?: string;
 }
 
 class SynthesizerAgent implements Agent<SynthContext, void> {
@@ -190,6 +192,15 @@ class SynthesizerAgent implements Agent<SynthContext, void> {
 
             lines.push("## Evaluator Goal", ctx.evalCtx.evalGoal, "",
                 "Write the final evaluation report to .descend/evaluator/report.md.");
+
+            // Include live user feedback if available
+            if (ctx.feedbackPath) {
+                const feedback = readFileOrDefault(ctx.feedbackPath, "");
+                if (feedback) {
+                    lines.push("", "## User Feedback (live — incorporate into report)",
+                        feedback, "");
+                }
+            }
 
             await session.sendAndWait({ prompt: lines.join("\n") }, config.timeout ?? DEFAULT_TIMEOUT);
         });
@@ -307,7 +318,7 @@ class EvaluatorOrchestrator implements Evaluator<EvalInput> {
         // Run synthesizer to write report.md
         log.system("   → evaluator:synthesizer");
         log.system(`   ⚖️ Weighted score: ${wScore.toFixed(1)} (weights: f=${goalWeights.features.toFixed(2)}, r=${goalWeights.reliability.toFixed(2)}, m=${goalWeights.modularity.toFixed(2)})`);
-        await this.synthesizer.run(client, config, { evalCtx, results, decision, goalWeights, wScore, wGaps });
+        await this.synthesizer.run(client, config, { evalCtx, results, decision, goalWeights, wScore, wGaps, feedbackPath: input.feedbackPath });
         log.system("   ← report.md written");
 
         return {
