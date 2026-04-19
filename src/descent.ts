@@ -122,9 +122,10 @@ export async function setup(
 export async function recover(
     client: CopilotClient,
     config: AgentConfig,
+    feedbackPath?: string,
 ): Promise<void> {
     log.system("\n🔬 Recovery mode — analyzing failure...");
-    await recoveryResearcher.run(client, config);
+    await recoveryResearcher.run(client, config, feedbackPath);
 
     // Reset state for fresh run, preserving the recovery plan in report.md
     const state = loadState();

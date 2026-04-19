@@ -11,10 +11,10 @@ import { existsSync, readFileSync } from "fs";
 // 4 hours for deep recovery analysis
 const RECOVERY_TIMEOUT = 4 * 60 * 60 * 1000;
 
-class RecoveryResearcher implements Implementor<void> {
+class RecoveryResearcher implements Implementor<string | undefined> {
     name = "implementor:recovery";
 
-    async run(client: CopilotClient, config: AgentConfig): Promise<ImplementorResult> {
+    async run(client: CopilotClient, config: AgentConfig, feedbackPath?: string): Promise<ImplementorResult> {
         log.system("🔬 Recovery researcher starting deep analysis...");
 
         const goalFile = readFileOrDefault(".descend/implementor/goal.md", "No goal file found.");
@@ -44,6 +44,7 @@ class RecoveryResearcher implements Implementor<void> {
                     "```json", stateJson, "```", "",
                     "## Archived Reports",
                     archivedReports, "",
+                    ...(feedbackPath ? ["## User Feedback", readFileOrDefault(feedbackPath, ""), ""] : []),
                     "Analyze deeply. Take your time. Write the recovery plan to .descend/evaluator/report.md.",
                 ].join("\n"),
             }, config.timeout ?? RECOVERY_TIMEOUT);

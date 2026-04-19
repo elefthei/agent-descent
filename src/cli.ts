@@ -165,7 +165,7 @@ async function main() {
                 model: args.implementorModel,
                 reasoningEffort: "high",
                 timeout: timeoutMs,
-            });
+            }, args.feedbackPath ?? undefined);
 
             log.system("\n🚀 Re-running descent with recovery plan...");
             const agents2 = await setup(client, args.goalPath, {
