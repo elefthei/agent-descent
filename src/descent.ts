@@ -6,27 +6,22 @@ import {
     planImplementor,
     execImplementor,
     evaluatorOrchestrator,
-    runSymbolicCheck,
     terminatorValidator,
     agenticTerminator,
     interventionValidator,
-    radicalPlanImplementor,
-    reliabilityCampaign,
-    modularityCampaign,
     type InterventionResult,
 } from "./agents/index.js";
 import { recoveryResearcher } from "./agents/recovery.js";
+import { runEscalation } from "./escalation.js";
 import { gitCommitAll, gitRevertToBaseline, gitCommitDescendOnly, getHeadSha, getGitLog } from "./utils/git.js";
 import { log } from "./utils/logger.js";
-import { saveState, loadState, archiveIteration, consecutiveRejects, isValidState, loadGoalWeights, type DescentState, type IterationRecord, type InterventionRecord } from "./utils/state.js";
+import { saveState, loadState, archiveIteration, isValidState, loadGoalWeights, type DescentState, type IterationRecord, type InterventionRecord } from "./utils/state.js";
 import { readFileOrDefault } from "./utils/files.js";
-import { readFileSync } from "fs";
 import { DEFAULT_MODEL } from "./models.js";
 import { checkPreviousError } from "./utils/check-error.js";
 import { withRetry } from "./utils/retry.js";
-import { CampaignError, type CampaignType } from "./errors.js";
+import { CampaignError } from "./errors.js";
 import { checkStagnation } from "./rules/stagnation.js";
-import { reliabilityCampaignRule, modularityCampaignRule, radicalPlanRule, CAMPAIGN_WEIGHT_THRESHOLD, type EscalationContext } from "./rules/campaigns.js";
 import type { AgentConfig, EvalOrchestratorResult, GatekeeperResult } from "./types.js";
 
 // ── Public types ────────────────────────────────────────────
@@ -141,7 +136,7 @@ export async function recover(
 
 // ── Phase helpers ───────────────────────────────────────────
 
-interface LoopContext {
+export interface LoopContext {
     client: CopilotClient;
     agents: AgentConfigs;
     state: DescentState;
@@ -276,116 +271,6 @@ async function runEvaluatorPhase(
     return { evalResult, baseline };
 }
 
-/**
- * Run the symbolic evaluator after a campaign to verify it didn't break the build.
- * Returns true if the campaign is safe to keep, false if it was reverted.
- */
-async function verifyCampaign(
-    ctx: LoopContext,
-    campaignName: CampaignType,
-    baseline: string,
-): Promise<boolean> {
-    log.system(`   🔍 Verifying ${campaignName} campaign (symbolic check)...`);
-    try {
-        const result = await runSymbolicCheck(ctx.client, ctx.agents.evaluator, baseline);
-
-        if (result.feedback.includes("FAIL:")) {
-            log.system(`   ❌ ${campaignName} campaign broke the build — reverting`);
-            log.system(`      Findings: ${result.feedback}`);
-            gitRevertToBaseline(baseline);
-            return false;
-        }
-        log.system(`   ✅ ${campaignName} campaign verified`);
-        return true;
-    } catch (err) {
-        log.system(`   ⚠️ Verification failed for ${campaignName}: ${(err as Error).message} — keeping changes`);
-        return true;
-    }
-}
-
-// ── Escalation ──────────────────────────────────────────────
-
-/** Run escalation campaigns. Returns true if any campaign executed. */
-async function runEscalation(ctx: LoopContext, baseline: string): Promise<boolean> {
-    const escCtx: EscalationContext = {
-        history: ctx.state.history,
-        maxReject: ctx.options.maxReject ?? 3,
-    };
-    const weights = loadGoalWeights();
-
-    let runReliability = await reliabilityCampaignRule(escCtx) === "SUCCESS";
-    let runModularity = await modularityCampaignRule(escCtx) === "SUCCESS";
-    const runRadical = await radicalPlanRule(escCtx) === "SUCCESS";
-
-    // Skip campaigns for axes with negligible goal weight
-    if (runReliability && weights.reliability < CAMPAIGN_WEIGHT_THRESHOLD) {
-        log.system(`   ⏭️ Skipping reliability campaign (weight ${(weights.reliability * 100).toFixed(0)}% < ${(CAMPAIGN_WEIGHT_THRESHOLD * 100).toFixed(0)}% threshold)`);
-        runReliability = false;
-    }
-    if (runModularity && weights.modularity < CAMPAIGN_WEIGHT_THRESHOLD) {
-        log.system(`   ⏭️ Skipping modularity campaign (weight ${(weights.modularity * 100).toFixed(0)}% < ${(CAMPAIGN_WEIGHT_THRESHOLD * 100).toFixed(0)}% threshold)`);
-        runModularity = false;
-    }
-
-    if (!runReliability && !runModularity && !runRadical) return false;
-
-    log.system("\n🚨 Escalation triggered...");
-    let campaignsRan = false;
-
-    if (runReliability) {
-        log.system("   🛡️ Reliability campaign (scores declining or rejection streak)...");
-        ctx.state.phase = "campaign:reliability";
-        saveState(ctx.state);
-        try {
-            const r = await withRetry((cfg) => reliabilityCampaign.run(ctx.client, cfg), ctx.agents.implementor, ctx.maxRetries);
-            log.system(`   ← [${[...r.kinds].join(", ")}] ${r.feedback}`);
-            if (await verifyCampaign(ctx, "reliability", baseline)) {
-                campaignsRan = true;
-            }
-        } catch (err) {
-            throw new CampaignError("reliability", (err as Error).message);
-        }
-    }
-
-    if (runModularity) {
-        log.system("   🏗️ Modularity campaign (scores declining or rejection streak)...");
-        ctx.state.phase = "campaign:modularity";
-        saveState(ctx.state);
-        try {
-            const r = await withRetry((cfg) => modularityCampaign.run(ctx.client, cfg), ctx.agents.implementor, ctx.maxRetries);
-            log.system(`   ← [${[...r.kinds].join(", ")}] ${r.feedback}`);
-            if (await verifyCampaign(ctx, "modularity", baseline)) {
-                campaignsRan = true;
-            }
-        } catch (err) {
-            throw new CampaignError("modularity", (err as Error).message);
-        }
-    }
-
-    if (runRadical && ctx.options.goalPath) {
-        log.system("   🚨 Radical plan (rethink from goal.md)...");
-        ctx.state.phase = "evaluator:radical";
-        saveState(ctx.state);
-
-        const rejectStreak = consecutiveRejects(ctx.state.history);
-        const failureReports = ctx.state.history.slice(-rejectStreak).map((rec) => {
-            const archived = readFileOrDefault(`.descend/history/iteration-${rec.iteration}/evaluator/report.md`, "");
-            return archived || readFileOrDefault(".descend/evaluator/report.md", "");
-        }).filter(Boolean);
-
-        const goalContent = readFileSync(ctx.options.goalPath, "utf-8");
-        try {
-            await withRetry((cfg) => radicalPlanImplementor.run(ctx.client, cfg, { goalContent, failureReports }), ctx.agents.evaluator, ctx.maxRetries);
-            log.system("   📋 RADICAL PLAN written");
-            campaignsRan = true;
-        } catch (err) {
-            throw new CampaignError("radical-plan", (err as Error).message);
-        }
-    }
-
-    return campaignsRan;
-}
-
 // ── Intervention ────────────────────────────────────────────
 
 async function runInterventionCheck(
@@ -487,6 +372,51 @@ async function handleIterationError(state: DescentState, baseline: string, itera
     return newBaseline;
 }
 
+/** Check for cascading failures and intervene if needed. Returns true if intervention fired (caller should `continue`). */
+async function handleIntervention(
+    ctx: LoopContext,
+    baseline: string,
+    iteration: number,
+): Promise<{ intervened: boolean; baseline: string }> {
+    const historyObserve = ctx.options.historyObserve ?? 3;
+    if (historyObserve <= 0 || ctx.state.history.length < historyObserve) {
+        return { intervened: false, baseline };
+    }
+
+    const intervention = await runInterventionCheck(ctx, baseline, historyObserve);
+    if (!intervention) return { intervened: false, baseline };
+
+    log.system(`🚨 INTERVENTION: ${intervention.feedback}`);
+    log.system(`   Reverting to ${intervention.revertTo}`);
+    gitRevertToBaseline(intervention.revertTo!);
+    const newBaseline = intervention.revertTo!;
+    ctx.state.baselineCommit = newBaseline;
+
+    if (!ctx.state.interventions) ctx.state.interventions = [];
+    ctx.state.interventions.push({
+        iteration,
+        revertedTo: newBaseline,
+        reason: intervention.feedback,
+        triggeredBy: "llm",
+    });
+
+    writeFileSync(".descend/evaluator/report.md", [
+        "# Intervention — Reverted",
+        "",
+        `Reverted to commit ${intervention.revertTo}.`,
+        "",
+        `**Reason**: ${intervention.feedback}`,
+        "",
+        "The previous iterations showed a cascading failure pattern.",
+        "Start fresh from this baseline with a different strategy.",
+    ].join("\n"));
+
+    archiveIteration(iteration);
+    ctx.state.phase = "intervention";
+    saveState(ctx.state);
+    return { intervened: true, baseline: newBaseline };
+}
+
 // ── descent ─────────────────────────────────────────────────
 
 export async function descent(
@@ -525,43 +455,8 @@ export async function descent(
             baseline = evalPhase.baseline;
 
             // Intervention check — detect cascading failures before escalation
-            const historyObserve = opts.historyObserve ?? 3;
-            if (historyObserve > 0 && state.history.length >= historyObserve) {
-                const intervention = await runInterventionCheck(ctx, baseline, historyObserve);
-                if (intervention) {
-                    // Intervention fired — revert, record, restart this iteration
-                    log.system(`🚨 INTERVENTION: ${intervention.feedback}`);
-                    log.system(`   Reverting to ${intervention.revertTo}`);
-                    gitRevertToBaseline(intervention.revertTo!);
-                    baseline = intervention.revertTo!;
-                    state.baselineCommit = baseline;
-
-                    if (!state.interventions) state.interventions = [];
-                    state.interventions.push({
-                        iteration,
-                        revertedTo: intervention.revertTo!,
-                        reason: intervention.feedback,
-                        triggeredBy: "llm",
-                    });
-
-                    // Overwrite evaluator report so implementor knows context changed
-                    writeFileSync(".descend/evaluator/report.md", [
-                        "# Intervention — Reverted",
-                        "",
-                        `Reverted to commit ${intervention.revertTo}.`,
-                        "",
-                        `**Reason**: ${intervention.feedback}`,
-                        "",
-                        "The previous iterations showed a cascading failure pattern.",
-                        "Start fresh from this baseline with a different strategy.",
-                    ].join("\n"));
-
-                    archiveIteration(iteration);
-                    state.phase = "intervention";
-                    saveState(state);
-                    continue; // Restart this iteration from implementor
-                }
-            }
+            const iv = await handleIntervention(ctx, baseline, iteration);
+            if (iv.intervened) { baseline = iv.baseline; continue; }
 
             let campaignsRan = false;
             try {
